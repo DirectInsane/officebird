@@ -1,0 +1,433 @@
+/* Loaded into each compose window while the ribbon is attached, not as a global sheet. */
+
+html[data-qol-ribbon] #composeToolbar2,
+html[data-qol-ribbon] #FormatToolbar {
+  display: none !important;
+}
+
+/* Reaches only the editor's frame; the mail is a document of its own, which gets
+ * the same cursor from engine.js (PAINTER_SHEET). */
+html[data-qol-painter] #messageEditor {
+  cursor: url("chrome://messenger/skin/icons/new/compact/paint-brush.svg") 2 14, text;
+}
+
+#qol-ribbon {
+  position: relative;
+  /* The collapsed ribbon opens over the headers below. */
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  padding: 0 6px 6px;
+  color: var(--toolbar-text-color, inherit);
+  font: menu;
+}
+
+#qol-ribbon button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: var(--toolbarbutton-border-radius, 3px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+
+  &:not(:disabled):hover {
+    background-color: var(--toolbarbutton-background-color-hover);
+  }
+
+  &:not(:disabled):hover:active,
+  &[aria-pressed="true"] {
+    background-color: var(--toolbarbutton-background-color-active);
+  }
+
+  &[aria-pressed="true"] {
+    border-color: var(--toolbarbutton-active-bordercolor);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--focus-outline-color, AccentColor);
+    outline-offset: -2px;
+  }
+}
+
+/* -moz-context-properties is chrome-only and dropped from this moz-extension sheet;
+ * view.js sets it (CHROME_CSS). */
+#qol-ribbon .qol-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  fill-opacity: var(--toolbarbutton-icon-fill-opacity, 1);
+}
+
+/* Menupopups otherwise pass a faint fill down to these icons. */
+#qol-ribbon .qol-menu .menu-icon {
+  fill: currentColor;
+  fill-opacity: var(--toolbarbutton-icon-fill-opacity, 1);
+}
+
+#qol-ribbon .qol-tabrow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+}
+
+#qol-ribbon .qol-qa {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-inline-end: 6px;
+  padding-inline-end: 6px;
+  border-inline-end: 1px solid var(--toolbarseparator-color);
+
+  & .qol-btn {
+    height: 26px;
+    padding-inline: 6px;
+  }
+
+  & .qol-arrow {
+    height: 26px;
+  }
+}
+
+#qol-ribbon .qol-tablist {
+  display: flex;
+  align-self: stretch;
+  gap: 2px;
+
+  & > button {
+    padding: 0 10px;
+    border-width: 0 0 2px;
+    border-radius: 0;
+    background-color: transparent;
+
+    &:hover {
+      border-block-end-color: var(--toolbarseparator-color);
+    }
+
+    &[aria-selected="true"] {
+      border-block-end-color: var(--tabline-color, AccentColor);
+      font-weight: 600;
+    }
+  }
+}
+
+#qol-ribbon .qol-spacer {
+  flex: 1;
+}
+
+#qol-ribbon .qol-collapse {
+  width: 26px;
+  height: 26px;
+
+  & .qol-icon {
+    transform: rotate(90deg);
+  }
+}
+
+#qol-ribbon[data-collapsed] .qol-collapse .qol-icon {
+  transform: rotate(-90deg);
+}
+
+#qol-ribbon .qol-panels {
+  border: 1px solid var(--layout-border-0, var(--toolbarseparator-color));
+  border-radius: 6px;
+  background-color: var(--layout-background-0, var(--toolbar-field-background-color));
+  overflow: hidden;
+}
+
+#qol-ribbon[data-collapsed]:not([data-open]) > .qol-panels {
+  display: none;
+}
+
+#qol-ribbon[data-collapsed][data-open] > .qol-panels {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline: 6px;
+  margin-block-start: -4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+#qol-ribbon .qol-panel {
+  display: flex;
+  align-items: stretch;
+  /* The same height on every tab, so switching tabs doesn't move the mail. */
+  box-sizing: border-box;
+  height: 100px;
+  padding: 4px 2px 0;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+#qol-ribbon .qol-group {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  padding-inline: 4px;
+
+  & + .qol-group {
+    border-inline-start: 1px solid var(--toolbarseparator-color);
+  }
+}
+
+#qol-ribbon .qol-group-body {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+  gap: 2px;
+  min-height: 0;
+}
+
+#qol-ribbon .qol-stack {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  gap: 2px;
+}
+
+#qol-ribbon .qol-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+#qol-ribbon .qol-group-label {
+  padding-block: 2px 4px;
+  text-align: center;
+  font-size: 0.92em;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+#qol-ribbon .qol-small {
+  height: 24px;
+  min-width: 24px;
+}
+
+/* Three labeled rows (Cut, Copy, Format painter). */
+#qol-ribbon .qol-group[data-group="clipboard"] .qol-stack .qol-small {
+  height: 22px;
+}
+
+#qol-ribbon .qol-large {
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 2px;
+  min-width: 48px;
+  height: 100%;
+  padding: 4px;
+
+  & .qol-icon:not(.qol-drop) {
+    width: 24px;
+    height: 24px;
+  }
+
+  & .qol-label {
+    white-space: normal;
+    text-align: center;
+    line-height: 1.15;
+  }
+}
+
+#qol-ribbon .qol-split {
+  display: inline-flex;
+  align-items: stretch;
+  padding: 0;
+  gap: 0;
+
+  &.qol-large {
+    flex-direction: column;
+
+    & > .qol-btn {
+      flex: 1;
+      height: auto;
+      border-end-start-radius: 0;
+      border-end-end-radius: 0;
+    }
+
+    & > .qol-arrow {
+      flex: none;
+      height: 16px;
+      max-width: none;
+      min-width: 0;
+      padding: 0;
+      border-start-start-radius: 0;
+      border-start-end-radius: 0;
+    }
+  }
+
+  &.qol-small {
+    min-width: 0;
+
+    & > .qol-btn {
+      border-start-end-radius: 0;
+      border-end-end-radius: 0;
+    }
+
+    & > .qol-arrow {
+      min-width: 14px;
+      padding: 0;
+      border-start-start-radius: 0;
+      border-end-start-radius: 0;
+    }
+  }
+
+  & > .qol-arrow .qol-icon {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+#qol-ribbon .qol-btn[data-kind="font"],
+#qol-ribbon .qol-field {
+  border: 1px solid var(--toolbar-field-border-color);
+  border-radius: var(--toolbarbutton-border-radius, 3px);
+  background-color: var(--toolbar-field-background-color);
+  color: var(--toolbar-field-color);
+}
+
+#qol-ribbon .qol-btn[data-kind="font"] {
+  justify-content: space-between;
+  width: 136px;
+  padding-inline: 6px 2px;
+}
+
+#qol-ribbon .qol-split.qol-field {
+  box-sizing: border-box;
+  height: 24px;
+
+  & > input {
+    box-sizing: border-box;
+    width: 36px;
+    min-width: 0;
+    height: 100%;
+    margin: 0;
+    padding: 0 2px 0 6px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    outline: none;
+
+    &:disabled {
+      opacity: 0.4;
+    }
+  }
+
+  &:focus-within {
+    outline: 2px solid var(--focus-outline-color, AccentColor);
+    outline-offset: -1px;
+  }
+
+  & > .qol-arrow {
+    border: none;
+  }
+}
+
+#qol-ribbon .qol-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: start;
+}
+
+#qol-ribbon .qol-drop {
+  width: 12px;
+  height: 12px;
+}
+
+#qol-ribbon .qol-glyph {
+  min-width: 16px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 14px;
+  line-height: 16px;
+  text-align: center;
+}
+
+#qol-ribbon .qol-glyph-strike {
+  text-decoration: line-through;
+}
+
+#qol-ribbon .qol-glyph-sample {
+  font-size: 18px;
+  line-height: 24px;
+}
+
+#qol-ribbon .qol-figure {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+
+  & > .qol-glyph {
+    line-height: 13px;
+  }
+}
+
+#qol-ribbon .qol-swatch {
+  width: 16px;
+  height: 3px;
+  border-radius: 1px;
+}
+
+/* Picker headings are disabled entries, drawn in the menu's text color. */
+#qol-ribbon .qol-picker .qol-caption {
+  color: inherit;
+  font-weight: 600;
+}
+
+#qol-ribbon .qol-picker .qol-swatches {
+  gap: 2px;
+  padding: 1px 8px;
+}
+
+#qol-ribbon .qol-picker menuitem.qol-color {
+  box-sizing: border-box;
+  width: 18px;
+  min-width: 0;
+  height: 18px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 0;
+
+  & > * {
+    display: none;
+  }
+
+  &[_moz-menuactive] {
+    outline: 2px solid var(--focus-outline-color, AccentColor);
+    outline-offset: 1px;
+  }
+}
+
+/* On the mail's white paper, whatever the theme. */
+#qol-ribbon .qol-picker menuitem.qol-style {
+  margin: 2px 6px;
+  border-radius: 3px;
+  background-color: #ffffff;
+  color: #000000;
+
+  &[data-current] {
+    box-shadow: inset 0 0 0 2px SelectedItem;
+  }
+
+  &[_moz-menuactive] {
+    outline: 2px solid var(--focus-outline-color, AccentColor);
+  }
+}

@@ -1,0 +1,62 @@
+[
+  {
+    "namespace": "qolCompose",
+    "functions": [
+      {
+        "name": "init",
+        "type": "function",
+        "async": true,
+        "description": "Attaches the ribbon to open and future compose windows if config.ribbon is true and returns the available features.",
+        "parameters": [
+          {
+            "name": "config",
+            "type": "any"
+          }
+        ]
+      },
+      {
+        "name": "updateConfig",
+        "type": "function",
+        "async": true,
+        "description": "Applies a new config to every open compose window.",
+        "parameters": [
+          {
+            "name": "config",
+            "type": "any"
+          }
+        ]
+      },
+      {
+        "name": "getFeatures",
+        "type": "function",
+        "async": true,
+        "description": "Returns whether the compose ribbon is available.",
+        "parameters": []
+      }
+    ],
+    "events": [
+      {
+        "name": "onStateChanged",
+        "type": "function",
+        "description": "Fired with the ribbon's UI state when the user changes it.",
+        "parameters": [
+          {
+            "name": "state",
+            "type": "any"
+          }
+        ]
+      },
+      {
+        "name": "onDefaultStyleSetChanged",
+        "type": "function",
+        "description": "Fired with a style set key when the user makes it the default for new mails.",
+        "parameters": [
+          {
+            "name": "styleSet",
+            "type": "string"
+          }
+        ]
+      }
+    ]
+  }
+]

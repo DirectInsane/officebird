@@ -1,0 +1,15 @@
+user_pref("marionette.port", 2829);
+user_pref("xpinstall.signatures.required", false);
+user_pref("mail.shell.checkDefaultClient", false);
+user_pref("mail.provider.suppress_dialog_on_startup", true);
+user_pref("mail.spotlight.firstRunDone", true);
+user_pref("mail.winsearch.firstRunDone", true);
+user_pref("mailnews.start_page.enabled", false);
+user_pref("datareporting.policy.dataSubmissionEnabled", false);
+user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);
+user_pref("app.update.disabledForTesting", true);
+user_pref("devtools.chrome.enabled", true);
+user_pref("devtools.debugger.remote-enabled", true);
+user_pref("extensions.autoDisableScopes", 0);
+user_pref("mail.threadpane.listview", 0);
+user_pref("extensions.webextensions.remote", false);

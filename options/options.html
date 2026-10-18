@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Officebird</title>
+    <link rel="stylesheet" href="options.css" />
+    <script src="../experiments/qol/dateformat.js"></script>
+    <script type="module" src="options.js"></script>
+  </head>
+  <body>
+    <main id="form">
+      <header class="page-header">
+        <div>
+          <h1>Officebird</h1>
+          <p class="subtitle">Outlook-style message list for Thunderbird: sender logos, previews, date groups and a calmer remote-content bar.</p>
+        </div>
+        <span id="statusPill" class="pill">Loading…</span>
+      </header>
+
+      <section class="panel preview-panel" aria-label="Live preview">
+        <div class="panel-title">Live preview</div>
+        <div class="mock-cards">
+          <div class="mock-card unread">
+            <span class="mock-avatar logo">GH</span>
+            <div class="mock-body">
+              <div class="mock-top"><span class="mock-sender">GitHub</span><span class="mock-date" data-mock-date="0"></span></div>
+              <div class="mock-subject">[repo] New pull request opened</div>
+              <div class="mock-preview" data-mock-preview="cards">A new pull request was opened by octocat. Please review the changes before Friday so we can ship the release next week. Thanks for your help!</div>
+            </div>
+          </div>
+          <div class="mock-card read">
+            <span class="mock-avatar" style="background:#a63f3f">AS</span>
+            <div class="mock-body">
+              <div class="mock-top"><span class="mock-sender">Anna Smith</span><span class="mock-date">Mon</span></div>
+              <div class="mock-subject">Kaffee morgen?</div>
+              <div class="mock-preview" data-mock-preview="cards">Hi! Hast du morgen Zeit für einen Kaffee? Ich bin ab zehn im Büro und würde mich freuen.</div>
+            </div>
+          </div>
+        </div>
+        <div class="mock-table" role="table">
+          <div class="mock-row" role="row">
+            <div class="mock-cell subject"><b>Kaffee morgen?</b><div class="mock-preview" data-mock-preview="table">Hi! Hast du morgen Zeit für einen Kaffee? Ich bin ab zehn im Büro und würde mich freuen.</div></div>
+            <div class="mock-cell sender"><span class="mock-avatar small" style="background:#a63f3f">AS</span>Anna Smith</div>
+            <div class="mock-cell date" data-mock-date="1"></div>
+          </div>
+          <div class="mock-row" role="row">
+            <div class="mock-cell subject"><b>Your account is limited</b><div class="mock-preview" data-mock-preview="table">Please verify your account immediately by clicking the link below.</div></div>
+            <div class="mock-cell sender"><span class="mock-avatar small unverified" style="background:#a6703f">P</span>PayPal</div>
+            <div class="mock-cell date" data-mock-date="2"></div>
+          </div>
+        </div>
+        <div class="mock-bar" id="mockBar"><span>To protect your privacy, Thunderbird blocked remote content in this message.</span></div>
+      </section>
+
+      <section class="panel" data-section="view">
+        <div class="panel-head">
+          <div>
+            <h2>Message list</h2>
+            <p>Same as View → Message List in Thunderbird.</p>
+          </div>
+          <div class="segmented" role="radiogroup" aria-label="Message list view">
+            <label><input type="radio" name="listView" value="cards" data-no-setting /><span>Cards</span></label>
+            <label><input type="radio" name="listView" value="table" data-no-setting /><span>Table</span></label>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="setting">
+            <div>
+              <div class="label">Outlook-style unread mail</div>
+              <div class="hint">Blue bar and blue subject for unread mail, no read dot. Applies to cards view.</div>
+            </div>
+            <input type="checkbox" class="switch" name="style.outlook" aria-label="Outlook-style unread mail" />
+          </div>
+          <div class="outlook-options">
+            <div class="setting">
+              <div class="label">Bar width</div>
+              <div class="slider"><input type="range" name="style.barWidth" min="2" max="6" step="1" /><output data-for="style.barWidth" data-unit="px"></output></div>
+            </div>
+            <div class="setting">
+              <div class="label">Card corners</div>
+              <div class="slider"><input type="range" name="style.cardRadius" min="0" max="12" step="1" /><output data-for="style.cardRadius" data-unit="px"></output></div>
+            </div>
+            <div class="setting">
+              <div class="label">Gap between cards</div>
+              <div class="slider"><input type="range" name="style.cardGap" min="0" max="12" step="1" /><output data-for="style.cardGap" data-unit="px"></output></div>
+            </div>
+            <p class="hint">Click the bar of a mail to mark it read or unread; on read mail the bar appears while you hover the left edge.</p>
+            <h3 class="sub-head">Read mail</h3>
+            <p class="hint">How strongly read mail and previews fade back. Unread mail is not affected.</p>
+            <div class="setting">
+              <div class="label">Style</div>
+              <div class="segmented" role="radiogroup" aria-label="Read mail style">
+                <label><input type="radio" name="readPreset" value="62,100" data-no-setting /><span>Dark subject</span></label>
+                <label><input type="radio" name="readPreset" value="62,62" data-no-setting /><span>Both grey</span></label>
+                <label><input type="radio" name="readPreset" value="100,100" data-no-setting /><span>Both dark</span></label>
+                <label class="custom"><input type="radio" name="readPreset" value="custom" data-no-setting disabled /><span>Custom</span></label>
+              </div>
+            </div>
+            <div class="setting">
+              <div class="label">Sender</div>
+              <div class="slider"><input type="range" name="style.readSender" min="40" max="100" step="2" /><output data-for="style.readSender" data-unit="%"></output></div>
+            </div>
+            <div class="setting">
+              <div class="label">Subject</div>
+              <div class="slider"><input type="range" name="style.readSubject" min="40" max="100" step="2" /><output data-for="style.readSubject" data-unit="%"></output></div>
+            </div>
+            <div class="setting">
+              <div>
+                <div class="label">Same tone</div>
+                <div class="hint">Move sender and subject together.</div>
+              </div>
+              <input type="checkbox" class="switch" id="linkTones" data-no-setting aria-label="Same tone for sender and subject" />
+            </div>
+            <div class="setting">
+              <div>
+                <div class="label">Preview text</div>
+                <div class="hint">All mail, cards and table.</div>
+              </div>
+              <div class="slider"><input type="range" name="preview.tone" min="30" max="80" step="2" /><output data-for="preview.tone" data-unit="%"></output></div>
+            </div>
+          </div>
+          <div class="setting column">
+            <div>
+              <div class="label">Card look</div>
+              <div class="hint">How each mail is drawn in cards view. "Theme" keeps what Thunderbird or your theme draws, for example flat rows.</div>
+            </div>
+            <div class="date-options look-options" role="radiogroup" aria-label="Card look">
+              <label class="date-option"><input type="radio" name="style.cardLook" value="theme" /><span><b>Theme</b><i class="look-sample theme"><i></i><i></i></i></span></label>
+              <label class="date-option"><input type="radio" name="style.cardLook" value="outline" /><span><b>Outlined</b><i class="look-sample outline"><i></i><i></i></i></span></label>
+              <label class="date-option"><input type="radio" name="style.cardLook" value="filled" /><span><b>Filled</b><i class="look-sample filled"><i></i><i></i></i></span></label>
+              <label class="date-option"><input type="radio" name="style.cardLook" value="both" /><span><b>Filled and outlined</b><i class="look-sample both"><i></i><i></i></i></span></label>
+            </div>
+          </div>
+          <div class="setting">
+            <div>
+              <div class="label">Compact group headers</div>
+              <div class="hint">When a folder is grouped (View → Sort by → Grouped by Sort), each group header takes one slim line in cards view instead of a whole card.</div>
+            </div>
+            <input type="checkbox" class="switch" name="style.groupHeaders" aria-label="Compact group headers" />
+          </div>
+          <div class="setting">
+            <div>
+              <div class="label">All folders</div>
+              <div class="hint">Group every folder of every account by date, newest first, or switch them all back to conversations. New folders follow. Single folders can still be changed in View → Sort by.</div>
+              <div class="detect-result" id="viewAllResult" aria-live="polite"></div>
+            </div>
+            <div class="view-all">
+              <button type="button" class="button" data-view-all="grouped" data-label="Group all">Group all</button>
+              <button type="button" class="button" data-view-all="threaded" data-label="Conversations">Conversations</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-section="icons">
+        <div class="panel-head">
+          <div>
+            <h2>Sender icons</h2>
+            <p>Logos for senders your provider verified, initials for everyone else.</p>
+          </div>
+          <input type="checkbox" class="switch" name="icons.enabled" aria-label="Show sender icons" />
+        </div>
+        <div class="panel-body">
+          <h3>Verification per account</h3>
+          <p class="hint">
+            Your provider stamps every mail it checked. <b>Detect</b> reads that stamp from your recent mail.
+            Only mail with a positive stamp gets a logo; fakes get initials with a red&nbsp;!.
+          </p>
+          <div id="accounts" class="accounts"></div>
+          <template id="accountRow">
+            <div class="account">
+              <div class="account-name"></div>
+              <div class="account-controls">
+                <input type="text" class="text" placeholder="e.g. mx.google.com" spellcheck="false" aria-label="Trusted authserv-ids" />
+                <button type="button" class="button detect">Detect</button>
+              </div>
+              <div class="detect-result" aria-live="polite"></div>
+            </div>
+          </template>
+
+          <details class="advanced">
+            <summary>Advanced</summary>
+            <div class="setting">
+              <div>
+                <div class="label">Brand logos (BIMI)</div>
+                <div class="hint">Official logos of big brands. The logo is downloaded from the brand's server, which can see your IP address.</div>
+              </div>
+              <input type="checkbox" class="switch" name="icons.bimi.enabled" aria-label="Use BIMI brand logos" />
+            </div>
+            <div class="setting">
+              <div class="label">DNS resolver for BIMI</div>
+              <div class="segmented" role="radiogroup" aria-label="DNS resolver">
+                <label><input type="radio" name="icons.bimi.resolver" value="cloudflare" /><span>Cloudflare</span></label>
+                <label><input type="radio" name="icons.bimi.resolver" value="quad9" /><span>Quad9</span></label>
+              </div>
+            </div>
+            <div class="setting column">
+              <div class="label">Extra free-mail domains</div>
+              <div class="hint">Senders from these domains always get initials (gmail.com, gmx.de and others are built in).</div>
+              <input type="text" class="text" name="icons.freemailExtra" placeholder="example-mail.de, other-mail.com" spellcheck="false" />
+            </div>
+            <div class="setting">
+              <div class="hint">Icons come from DuckDuckGo, which learns which domains mail you, not who. Senders' servers are never contacted.</div>
+              <button type="button" class="button" id="clearCache">Clear icon cache</button>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section class="panel" data-section="preview">
+        <div class="panel-head">
+          <div>
+            <h2>Message preview</h2>
+            <p>The first lines of each mail under the subject, like Outlook.</p>
+          </div>
+          <input type="checkbox" class="switch" name="preview.enabled" aria-label="Show message preview" />
+        </div>
+        <div class="panel-body">
+          <div class="setting">
+            <div class="label">Lines in cards view</div>
+            <div class="slider"><input type="range" name="preview.lines" min="1" max="5" step="1" /><output data-for="preview.lines"></output></div>
+          </div>
+          <div class="setting">
+            <div class="label">Lines in table view</div>
+            <div class="slider"><input type="range" name="preview.tableLines" min="1" max="3" step="1" /><output data-for="preview.tableLines"></output></div>
+          </div>
+          <p class="hint">Shown for mail stored on this computer (local folders and IMAP folders synced for offline use).</p>
+        </div>
+      </section>
+
+      <section class="panel" data-section="table">
+        <div class="panel-head">
+          <div>
+            <h2>Date in table view</h2>
+            <p>How the Date column shows when a mail arrived. Hover a date for the full date and time.</p>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="date-options" role="radiogroup" aria-label="Date style">
+            <label class="date-option"><input type="radio" name="table.dateStyle" value="smart" /><span><b>Smart</b><small data-example="smart"></small></span></label>
+            <label class="date-option"><input type="radio" name="table.dateStyle" value="relative" /><span><b>Relative</b><small data-example="relative"></small></span></label>
+            <label class="date-option"><input type="radio" name="table.dateStyle" value="date" /><span><b>Date only</b><small data-example="date"></small></span></label>
+            <label class="date-option"><input type="radio" name="table.dateStyle" value="datetime" /><span><b>Date and time</b><small data-example="datetime"></small></span></label>
+            <label class="date-option"><input type="radio" name="table.dateStyle" value="thunderbird" /><span><b>Thunderbird</b><small>Thunderbird's own setting</small></span></label>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-section="bar">
+        <div class="panel-head">
+          <div>
+            <h2>Remote content bar</h2>
+            <p>The "remote content blocked" notice above a message.</p>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="setting">
+            <div class="label">Background</div>
+            <input type="color" name="bar.background" aria-label="Background color" />
+          </div>
+          <div class="setting">
+            <div class="label">Text</div>
+            <input type="color" name="bar.text" aria-label="Text color" />
+          </div>
+          <div class="setting">
+            <div class="label">Opacity</div>
+            <div class="slider"><input type="range" name="bar.opacity" min="0" max="100" step="5" /><output data-for="bar.opacity" data-unit="%"></output></div>
+          </div>
+          <div class="setting">
+            <div class="label">Compact</div>
+            <input type="checkbox" class="switch" name="bar.compact" aria-label="Compact bar" />
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-section="compose">
+        <div class="panel-head">
+          <div>
+            <h2>Compose window</h2>
+            <p>How the window for writing mail looks.</p>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="setting">
+            <div>
+              <div class="label">Outlook-style compose ribbon</div>
+              <div class="hint">Tabs with the formatting tools above the mail, instead of Thunderbird's compose toolbar and formatting bar.</div>
+            </div>
+            <input type="checkbox" class="switch" name="compose.ribbon" aria-label="Outlook-style compose ribbon" />
+          </div>
+          <div class="setting">
+            <div>
+              <div class="label">Style set for new mails</div>
+              <div class="hint">New mails, replies and forwards start with it; drafts keep their own. In the ribbon: Style set → Set as default.</div>
+            </div>
+            <div class="segmented" role="radiogroup" aria-label="Style set for new mails">
+              <label><input type="radio" name="compose.styleSet" value="default" /><span>Default</span></label>
+              <label><input type="radio" name="compose.styleSet" value="modern" /><span>Modern</span></label>
+              <label><input type="radio" name="compose.styleSet" value="classic" /><span>Classic</span></label>
+              <label><input type="radio" name="compose.styleSet" value="compact" /><span>Compact</span></label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="status">
+        <ul id="status"></ul>
+      </footer>
+    </main>
+  </body>
+</html>

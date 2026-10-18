@@ -1,0 +1,140 @@
+[
+  {
+    "namespace": "qol",
+    "functions": [
+      {
+        "name": "init",
+        "type": "function",
+        "async": true,
+        "description": "Installs the UI hooks, applies the initial config and returns which features found their hook points.",
+        "parameters": [
+          {
+            "name": "config",
+            "type": "any"
+          },
+          {
+            "name": "css",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "name": "updateConfig",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "config",
+            "type": "any"
+          },
+          {
+            "name": "css",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "name": "setIcons",
+        "type": "function",
+        "async": true,
+        "description": "Maps card ids to { dataUrl, unverified, pending, initials, color, generation }, where dataUrl is a base64 image data: URL or null and results from before the last clearIcons() are dropped.",
+        "parameters": [
+          {
+            "name": "map",
+            "type": "any"
+          }
+        ]
+      },
+      {
+        "name": "clearIcons",
+        "type": "function",
+        "async": true,
+        "description": "Forgets all icon results so visible cards are requested again.",
+        "parameters": []
+      },
+      {
+        "name": "getFeatures",
+        "type": "function",
+        "async": true,
+        "parameters": []
+      },
+      {
+        "name": "listServers",
+        "type": "function",
+        "async": true,
+        "description": "Lists the incoming servers of all accounts as [{ key, name, type }].",
+        "parameters": []
+      },
+      {
+        "name": "sampleAuthResults",
+        "type": "function",
+        "async": true,
+        "description": "Returns Authentication-Results values of the newest locally stored messages (reading at most 200 per folder) in every inbox and displayed folder as { [serverKey]: string[] }.",
+        "parameters": [
+          {
+            "name": "perFolder",
+            "type": "integer"
+          },
+          {
+            "name": "serverKey",
+            "type": "string",
+            "optional": true,
+            "description": "Only sample this account's folders."
+          }
+        ]
+      },
+      {
+        "name": "getListView",
+        "type": "function",
+        "async": true,
+        "description": "Thunderbird's message list view: \"cards\" or \"table\".",
+        "parameters": []
+      },
+      {
+        "name": "setListView",
+        "type": "function",
+        "async": true,
+        "description": "Switches Thunderbird's message list view (mail.threadpane.listview).",
+        "parameters": [
+          {
+            "name": "view",
+            "type": "string",
+            "enum": [
+              "cards",
+              "table"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "applyViewToAllFolders",
+        "type": "function",
+        "async": true,
+        "description": "Sets every folder of every account (and the default for new folders) to grouped by date or to threaded conversations.",
+        "parameters": [
+          {
+            "name": "mode",
+            "type": "string",
+            "enum": [
+              "grouped",
+              "threaded"
+            ]
+          }
+        ]
+      }
+    ],
+    "events": [
+      {
+        "name": "onCardsRendered",
+        "type": "function",
+        "description": "Fired with a batch of card descriptors ({ id, email, displayName, authResults, serverKey, generation }) that have no icon result yet.",
+        "parameters": [
+          {
+            "name": "cards",
+            "type": "any"
+          }
+        ]
+      }
+    ]
+  }
+]

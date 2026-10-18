@@ -1,0 +1,64 @@
+{
+  "manifest_version": 2,
+  "name": "Officebird",
+  "description": "Outlook-style message list and compose ribbon: verified sender logos, preview lines, compact date groups, formatting ribbon with style sets.",
+  "version": "0.1.0",
+  "author": "DirectInsane",
+  "icons": {
+    "32": "images/icon.svg",
+    "64": "images/icon.svg"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "officebird@local",
+      "strict_min_version": "153.0"
+    }
+  },
+  "background": {
+    "page": "background/background.html",
+    "persistent": true
+  },
+  "permissions": [
+    "storage",
+    "messagesRead",
+    "addressBooks",
+    "https://icons.duckduckgo.com/*"
+  ],
+  "optional_permissions": [
+    "https://*/*"
+  ],
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "experiment_apis": {
+    "qol": {
+      "schema": "experiments/qol/schema.json",
+      "parent": {
+        "scopes": [
+          "addon_parent"
+        ],
+        "paths": [
+          [
+            "qol"
+          ]
+        ],
+        "script": "experiments/qol/implementation.js"
+      }
+    },
+    "qolCompose": {
+      "schema": "experiments/compose/schema.json",
+      "parent": {
+        "scopes": [
+          "addon_parent"
+        ],
+        "paths": [
+          [
+            "qolCompose"
+          ]
+        ],
+        "script": "experiments/compose/implementation.js"
+      }
+    }
+  }
+}
