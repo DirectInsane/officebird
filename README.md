@@ -30,12 +30,13 @@ Officebird brings the parts of Outlook that people miss most to Thunderbird: a m
 | | |
 |---|---|
 | **Sender logos** | Each card shows the logo of the sender's company, but only after your mail provider confirmed the sender is genuine. A forged mail, for example one pretending to come from PayPal, gets plain initials and a red **!** instead. Photos from your address book come first; official brand logos (BIMI) are optional. The reading pane shows the same next to the sender's name. |
-| **Preview lines** | One to five lines of each mail's text below the subject. |
+| **Preview lines** | One to five lines of each mail's text below the subject, also for mails with large attachments. |
 | **Unread at a glance** | A blue bar and blue subject mark unread mail; clicking the bar toggles read and unread. Read mail fades back as far as you like. |
-| **Card look** | Your theme's cards, or outlined or filled ones. |
-| **Date groups** | "Today", "Yesterday" and older groups as slim headers, for one folder or all at once. |
+| **Card look** | Your theme's cards, or outlined or filled ones. Hovering a card shows a delete button next to the star. |
+| **Date groups** | "Today", "Yesterday" and older groups as slim headers, for one folder or all at once. They open expanded in every folder; a group you collapse stays collapsed. |
 | **Table view** | Avatars and a preview line in the classic table, and a date column that shows the time for today, the weekday for this week and the date for older mail. |
 | **Remote content notice** | Custom colors and a compact size for the "remote content blocked" bar. |
+| **Thunderbird switches** | Unified folders (Inbox, Drafts, Sent, Spam of all accounts) above the accounts, and whether mail is marked read when shown, right in the add-on's settings. |
 
 ### Compose window
 
