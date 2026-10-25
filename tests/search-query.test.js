@@ -136,3 +136,10 @@ test("round trip: parse(print(parse(x))) equals parse(x)", () => {
     }
   }
 });
+
+test("inherited object property names are not flag values", () => {
+  for (const x of ["has:constructor", "is:toString", "is:__proto__"]) {
+    assert.deepEqual(plain(parse(x)), { or: [[leaf("body", x)]] }, x);
+    assert.deepEqual(plain(parse(print(parse(x), "en"))), plain(parse(x)), x);
+  }
+});

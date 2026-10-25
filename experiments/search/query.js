@@ -93,7 +93,9 @@ var qolSearchQuery = (() => {
       const keyword = (token.quoted ? token.prefix : token.text).slice(0, colon).toLowerCase();
       const value = token.quoted ? token.text : token.text.slice(colon + 1);
       if (Object.hasOwn(FLAG_KEYWORDS, keyword) && !token.quoted) {
-        const field = FLAG_KEYWORDS[keyword][value.toLowerCase()];
+        const flags = FLAG_KEYWORDS[keyword];
+        const key = value.toLowerCase();
+        const field = Object.hasOwn(flags, key) ? flags[key] : null;
         if (field) return { field, value: true, negated, phrase: false };
       } else if (Object.hasOwn(VALUE_KEYWORDS, keyword) && value) {
         const field = VALUE_KEYWORDS[keyword];
