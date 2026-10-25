@@ -325,6 +325,34 @@
         </div>
       </section>
 
+      <section class="panel" data-section="search">
+        <div class="panel-head">
+          <div>
+            <h2>Search</h2>
+            <p>The search field above the message list.</p>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="setting">
+            <div>
+              <div class="label">Officebird search instead of Thunderbird's search bar</div>
+              <div class="hint">A query field with a filter panel. Turn it off to get Thunderbird's own search bar back.</div>
+            </div>
+            <input type="checkbox" class="switch" name="search.enabled" aria-label="Officebird search instead of Thunderbird's search bar" />
+          </div>
+          <div class="setting">
+            <div>
+              <div class="label">Default scope</div>
+              <div class="hint">Where a search looks first; you can change it for each search.</div>
+            </div>
+            <div class="segmented" role="radiogroup" aria-label="Default scope">
+              <label><input type="radio" name="search.scope" value="folder" /><span>This folder</span></label>
+              <label><input type="radio" name="search.scope" value="all" /><span>All mailboxes</span></label>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <footer class="status">
         <ul id="status"></ul>
       </footer>

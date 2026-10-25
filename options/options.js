@@ -177,6 +177,7 @@ async function renderStatus() {
     preview: "Previews",
     warningBar: "Remote content bar",
     composeRibbon: "Compose ribbon",
+    search: "Search",
   };
   const list = document.getElementById("status");
   list.replaceChildren(
