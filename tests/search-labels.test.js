@@ -43,5 +43,12 @@ test("label replaces {name} placeholders from vars", () => {
     "Full-text index is still being built (42 %): body search may miss some mails.");
   assert.equal(label("en", "unknownFolder", { name: "Work" }), "No folder named Work");
   assert.equal(label("de", "offline", { count: 3 }).includes("3"), true);
-  assert.equal(label("en", "offline"), "Server not reachable: {count} folders searched only locally.");
+  assert.equal(label("en", "offline"), "Server not reachable: folders searched only locally: {count}");
+});
+
+test("German texts", () => {
+  assert.equal(label("de", "tip"), "Begriff anklicken zum Ausschließen · ODER zwischen Begriffen verwenden");
+  assert.match(label("de", "glodaOff"), /^Der Volltextindex ist deaktiviert: /);
+  assert.equal(label("de", "offline", { count: 1 }), "Server nicht erreichbar: nur lokal durchsuchte Ordner: 1");
+  assert.equal(label("de", "closeNotice"), "Schließen");
 });
