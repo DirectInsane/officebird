@@ -8,6 +8,9 @@ var qolSearchEngine = (() => {
   const GLODA_PREF = "mailnews.database.global.indexer.enabled";
   const PROGRESS_INTERVAL = 250;
   const UNIVERSE_CHUNK = 2000;
+  // A server search or Gloda query that never reports back must not hold up the rest.
+  const ONLINE_TIMEOUT = 60000;
+  const GLODA_TIMEOUT = 30000;
 
   function idOf(hdr) {
     return hdr.folder.URI + "#" + hdr.messageKey;
@@ -53,12 +56,21 @@ var qolSearchEngine = (() => {
     return { infos, byUri };
   }
 
-  // "YYYY-MM-DD" -> PRTime. Thunderbird compares calendar days in local time
-  // (before: earlier days, after: later days), so any time of that day will do; noon
-  // stays on the day across daylight-saving shifts.
-  function datePRTime(text) {
+  // "YYYY-MM-DD" -> PRTime, `shift` days later. Thunderbird compares calendar days in
+  // local time (IsBefore: earlier days, IsAfter: later days), so any time of the day will
+  // do; noon stays on the day across daylight-saving shifts.
+  function datePRTime(text, shift = 0) {
     const [y, m, d] = text.split("-").map(Number);
-    return new Date(y, m - 1, d, 12).getTime() * 1000;
+    return new Date(y, m - 1, d + shift, 12).getTime() * 1000;
+  }
+
+  // Full-text query words: the index splits text at everything but letters and digits,
+  // and those other characters are query operators to SQLite's MATCH.
+  function glodaWords(words) {
+    return words
+      .flatMap((word) => word.replace(/\*$/, "").split(/[^\p{L}\p{N}]+/u))
+      .filter(Boolean)
+      .map((word) => word.toLowerCase() + "*");
   }
 
   // Tag name (or key) -> tag keys; names compare case-insensitively.
@@ -168,7 +180,8 @@ var qolSearchEngine = (() => {
       const attrib = Ci.nsMsgSearchAttrib[term.attrib];
       const op = Ci.nsMsgSearchOp[term.op];
       let values;
-      if (term.attrib === "Date") values = [{ date: datePRTime(term.value) }];
+      // after: includes the given day, IsAfter starts the day after.
+      if (term.attrib === "Date") values = [{ date: datePRTime(term.value, term.op === "IsAfter" ? -1 : 0) }];
       else if (term.attrib === "MsgStatus") values = [{ status: Ci.nsMsgMessageFlags[term.value] }];
       else if (term.attrib === "Keywords") values = tagKeys(MailServices, term.value).map((key) => ({ str: key }));
       else values = [{ str: term.value }];
@@ -186,38 +199,62 @@ var qolSearchEngine = (() => {
       });
     }
 
-    // One session for `leaf` over `folders`; returns false when the search failed.
-    function runSession(leaf, folders, scope, onHit) {
-      if (!folders.length) return Promise.resolve(true);
-      const session = Cc["@mozilla.org/messenger/searchSession;1"].createInstance(Ci.nsIMsgSearchSession);
-      const searchTerms = sessionTermFor(session, leaf);
-      if (!searchTerms.length) return Promise.resolve(true);
-      for (const folder of folders) session.addScopeTerm(scope, folder);
-      for (const searchTerm of searchTerms) session.appendTerm(searchTerm);
+    // One session per folder: a session stops at the first scope that fails to
+    // initialise (Search() throws, no OnSearchDone), so one broken folder would end the
+    // search of all others. Returns false when the folder could not be searched.
+    function runSession(leaf, folder, scope, onHit) {
+      let session;
+      try {
+        session = Cc["@mozilla.org/messenger/searchSession;1"].createInstance(Ci.nsIMsgSearchSession);
+        const searchTerms = sessionTermFor(session, leaf);
+        if (!searchTerms.length) return Promise.resolve(true);
+        session.addScopeTerm(scope, folder);
+        for (const searchTerm of searchTerms) session.appendTerm(searchTerm);
+      } catch (e) {
+        win.console.warn("officebird search: cannot search folder", folder.URI, e);
+        return Promise.resolve(false);
+      }
       return cancellable((finish) => {
+        let timer = null;
+        const end = (ok) => {
+          clearTimeout(timer);
+          sessions.delete(session);
+          finish(ok);
+        };
         session.registerListener({
           onNewSearch() {},
           onSearchHit(msgHdr) {
             if (!cancelled) onHit(msgHdr);
           },
           onSearchDone(status) {
-            sessions.delete(session);
-            finish(Components.isSuccessCode(status));
+            end(Components.isSuccessCode(status));
           },
         });
         sessions.add(session);
+        if (scope === Ci.nsMsgSearchScope.onlineMail) {
+          timer = setTimeout(() => {
+            try {
+              session.interruptSearch();
+            } catch (e) {}
+            end(false);
+          }, ONLINE_TIMEOUT);
+        }
         try {
           session.search(msgWindow);
         } catch (e) {
-          sessions.delete(session);
-          finish(false);
+          win.console.warn("officebird search: cannot search folder", folder.URI, e);
+          end(false);
         }
       });
     }
 
     async function headerLeaf(leaf, folders) {
       const key = sets.leafKey(leaf);
-      await runSession(leaf, folders, Ci.nsMsgSearchScope.offlineMail, (msgHdr) => addHit(key, msgHdr));
+      for (const folder of folders) {
+        const searched = await runSession(leaf, folder, Ci.nsMsgSearchScope.offlineMail, (msgHdr) => addHit(key, msgHdr));
+        if (cancelled) return;
+        if (!searched) win.console.warn("officebird search: folder left out of the search", folder.URI);
+      }
     }
 
     function loadGloda() {
@@ -243,28 +280,45 @@ var qolSearchEngine = (() => {
       return total ? Math.floor((clean * 100) / total) : 100;
     }
 
+    // Gloda's hits for a body leaf; any failure leaves the leaf to the scan.
     function glodaLeaf(gloda, leaf, scopeUris) {
       const key = sets.leafKey(leaf);
-      const glodaQuery = gloda.Gloda.newQuery(gloda.GlodaConstants.NOUN_MESSAGE);
-      glodaQuery.fulltextMatches(terms.glodaTerms(leaf).join(" "));
+      const words = glodaWords(terms.glodaTerms(leaf));
+      if (!words.length) return Promise.resolve();
       return cancellable((finish) => {
-        glodaQuery.getCollection(
-          {
-            onItemsAdded() {},
-            onItemsModified() {},
-            onItemsRemoved() {},
-            onQueryCompleted(collection) {
-              if (!cancelled) {
-                for (const item of collection.items) {
-                  const msgHdr = item.folderMessage;
-                  if (msgHdr && scopeUris.has(msgHdr.folder.URI)) addHit(key, msgHdr);
+        const timer = setTimeout(finish, GLODA_TIMEOUT);
+        const end = () => {
+          clearTimeout(timer);
+          finish();
+        };
+        try {
+          const glodaQuery = gloda.Gloda.newQuery(gloda.GlodaConstants.NOUN_MESSAGE);
+          glodaQuery.fulltextMatches(words.join(" "));
+          glodaQuery.getCollection(
+            {
+              onItemsAdded() {},
+              onItemsModified() {},
+              onItemsRemoved() {},
+              onQueryCompleted(collection) {
+                try {
+                  if (!cancelled) {
+                    for (const item of collection.items) {
+                      const msgHdr = item.folderMessage;
+                      if (msgHdr && scopeUris.has(msgHdr.folder.URI)) addHit(key, msgHdr);
+                    }
+                  }
+                } catch (e) {
+                  win.console.warn("officebird search: full-text results not read", e);
                 }
-              }
-              finish();
+                end();
+              },
             },
-          },
-          null
-        );
+            null
+          );
+        } catch (e) {
+          win.console.warn("officebird search: full-text query failed", e);
+          end();
+        }
       });
     }
 
@@ -278,14 +332,18 @@ var qolSearchEngine = (() => {
       };
       const online = folders.filter((folder) => folder.server.type === "imap" && !(folder.flags & Ci.nsMsgFolderFlags.Offline));
       const local = folders.filter((folder) => !online.includes(folder));
-      await runSession(leaf, local, Ci.nsMsgSearchScope.offlineMail, onHit);
       const failed = [];
-      for (const folder of online) {
+      for (const folder of local) {
+        await runSession(leaf, folder, Ci.nsMsgSearchScope.offlineMail, onHit);
         if (cancelled) return failed;
-        const reached = !Services.io.offline && (await runSession(leaf, [folder], Ci.nsMsgSearchScope.onlineMail, onHit));
+      }
+      for (const folder of online) {
+        const reached = !Services.io.offline && (await runSession(leaf, folder, Ci.nsMsgSearchScope.onlineMail, onHit));
+        if (cancelled) return failed;
         if (!reached) {
           failed.push(folder.URI);
-          await runSession(leaf, [folder], Ci.nsMsgSearchScope.offlineMail, onHit);
+          await runSession(leaf, folder, Ci.nsMsgSearchScope.offlineMail, onHit);
+          if (cancelled) return failed;
         }
       }
       return failed;
@@ -341,6 +399,15 @@ var qolSearchEngine = (() => {
       const current = opts.current?.URI ?? "";
       allScope = new Set(terms.scopeFolders(infos, { scope: "all", current, chosen, excluded }));
       folderScope = new Set(terms.scopeFolders(infos, { scope: "folder", current, chosen, excluded }));
+      // A unified folder or saved search stands for the folders it searches.
+      if (!chosen.length && opts.current && opts.current.flags & Ci.nsMsgFolderFlags.Virtual) {
+        const { VirtualFolderHelper } = ChromeUtils.importESModule("resource:///modules/VirtualFolderWrapper.sys.mjs");
+        folderScope = new Set(
+          VirtualFolderHelper.wrapVirtualFolder(opts.current).searchFolders.flatMap((folder) =>
+            terms.scopeFolders(infos, { scope: "folder", current: folder.URI, chosen, excluded })
+          )
+        );
+      }
       // Both scopes in one pass: the default scope's folders first, each folder once.
       const [first, second] = opts.scopeDefault === "all" ? [allScope, folderScope] : [folderScope, allScope];
       const scopeUris = new Set([...first, ...second]);

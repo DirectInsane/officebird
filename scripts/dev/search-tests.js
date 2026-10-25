@@ -1,7 +1,7 @@
 // Search integration suite (test-search.sh); returns { passed, failed: [{ name, error }] }.
 // Needs the data from search-setup.js.
 const { MailServices } = ChromeUtils.importESModule("resource:///modules/MailServices.sys.mjs");
-const { setTimeout } = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");
+const { setTimeout, clearTimeout } = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");
 
 // Helpers
 
@@ -255,7 +255,17 @@ function seededSet(...numbers) {
 async function search(text, { current = inbox, scopeDefault = "folder" } = {}) {
   const calls = [];
   const run = engine.run(win, query.parse(text), { current, scopeDefault }, state => calls.push(state));
-  await run.done;
+  // A search that never finishes fails the test instead of the whole suite.
+  let timer;
+  const timeout = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`search for ${text} did not finish`)), 30000);
+  });
+  try {
+    await Promise.race([run.done, timeout]);
+  } finally {
+    clearTimeout(timer);
+    run.cancel();
+  }
   return { calls, last: calls.at(-1) };
 }
 
@@ -345,7 +355,7 @@ test("tag names match case-insensitively and unknown tags match nothing", async 
   assertEqual(unknown.last.allIds.size, 0);
 });
 
-test("before excludes and after includes the right days", async () => {
+test("before excludes the given day and after includes it", async () => {
   await withTempFolder("Search Dates", async folder => {
     // Local times around 2026-10-10; the search compares calendar days in local time.
     const times = [new Date(2026, 9, 9, 23, 30), new Date(2026, 9, 10, 0, 30), new Date(2026, 9, 10, 23, 30), new Date(2026, 9, 11, 0, 30)];
@@ -358,8 +368,8 @@ test("before excludes and after includes the right days", async () => {
     const before = await search('in:"Search Dates" before:2026-10-10');
     assertEqual(sortedIds(before.last.allIds), [ids[0]]);
     const after = await search('in:"Search Dates" after:2026-10-10');
-    assertEqual(sortedIds(after.last.allIds), [ids[3]]);
-    const day = await search('in:"Search Dates" after:9.10.2026 before:11.10.2026');
+    assertEqual(sortedIds(after.last.allIds), [ids[1], ids[2], ids[3]].sort());
+    const day = await search('in:"Search Dates" nach:10.10.2026 vor:11.10.2026');
     assertEqual(sortedIds(day.last.allIds), [ids[1], ids[2]].sort());
   });
 });
@@ -386,16 +396,40 @@ test("negated-only query on all mailboxes yields to the UI", async () => {
       hdr.date = Date.UTC(2026, 0, 1) * 1000;
       db.addNewHdrToDB(hdr, true);
     }
+    // Only the folder's universe, no search session that would yield on its own.
     let fired = false;
     setTimeout(() => (fired = true), 0);
-    const run = engine.run(win, query.parse("-from:nobody"), { current: inbox, scopeDefault: "all" }, () => {});
+    const run = engine.run(win, query.parse('in:"Search Bulk"'), { current: inbox, scopeDefault: "all" }, () => {});
     let doneFirst = false;
     await run.done.then(() => (doneFirst = !fired));
     assert(!doneFirst, "the search finished before a timer could run");
+    const bulk = await search('in:"Search Bulk"');
+    assertEqual(bulk.last.allIds.size, 5000);
     const { last } = await search("-from:nobody", { scopeDefault: "all" });
     assert(last.allIds.size >= 5015, `only ${last.allIds.size} mails`);
     assertEqual(last.folderIds.size, inbox.getTotalMessages(false));
   });
+});
+
+test("search characters of the full-text index stay plain text", async () => {
+  await glodaIndexed();
+  const odd = await search('(x"y: NOT -* ^:');
+  assertEqual(odd.last.searching, false);
+  const { calls } = await search('"Rechnungsnummer 4711-0815"');
+  assert(calls[0].searching && calls[0].allIds.has(seeded(2)), `Gloda found ${sortedIds(calls[0].allIds)}`);
+});
+
+test("a saved search as current folder searches its folders", async () => {
+  const { VirtualFolderHelper } = ChromeUtils.importESModule("resource:///modules/VirtualFolderWrapper.sys.mjs");
+  const saved = VirtualFolderHelper.createNewVirtualFolder("Search Saved", testRoot, [inbox, archive], "ALL", false).virtualFolder;
+  try {
+    const { last } = await search("from:alice", { current: saved });
+    assertEqual(sortedIds(last.folderIds), seededSet(1, 5, 10));
+    assertEqual(sortedIds(last.allIds), seededSet(1, 5, 10, 13));
+  } finally {
+    saved.deleteSelf(null);
+    MailServices.accounts.localFoldersServer.rootFolder.getFolderWithFlags(Ci.nsMsgFolderFlags.Trash)?.getChildNamed("Search Saved")?.deleteSelf(null);
+  }
 });
 
 test("unknown folder reports and does not search", async () => {
