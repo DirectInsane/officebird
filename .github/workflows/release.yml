@@ -37,7 +37,12 @@ jobs:
         run: |
           name="officebird-${GITHUB_REF_NAME#v}.xpi"
           mv dist/officebird.xpi "dist/$name"
-          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; *) pre="" ;; esac
+          # Only stable releases carry updates.json, so installed copies never update to a pre-release.
+          case "$GITHUB_REF_NAME" in
+            *-*) pre="--prerelease"; updates="" ;;
+            *) pre=""; updates="dist/updates.json"
+               node .github/scripts/updates-json.mjs "$GITHUB_REF_NAME" "dist/$name" > "$updates" ;;
+          esac
           .github/scripts/release-notes.sh "$GITHUB_REF_NAME" > notes.md
-          gh release create "$GITHUB_REF_NAME" "dist/$name" --verify-tag $pre \
+          gh release create "$GITHUB_REF_NAME" "dist/$name" $updates --verify-tag $pre \
             --title "Officebird ${GITHUB_REF_NAME#v}" --notes-file notes.md

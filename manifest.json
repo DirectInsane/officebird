@@ -10,8 +10,9 @@
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "officebird@local",
-      "strict_min_version": "153.0"
+      "id": "officebird@directinsane.github.io",
+      "strict_min_version": "153.0",
+      "update_url": "https://github.com/DirectInsane/officebird/releases/latest/download/updates.json"
     }
   },
   "background": {

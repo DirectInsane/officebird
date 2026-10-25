@@ -5,7 +5,7 @@ const { ExtensionStorageIDB } = ChromeUtils.importESModule("resource://gre/modul
 const { setTimeout } = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");
 const { AppConstants } = ChromeUtils.importESModule("resource://gre/modules/AppConstants.sys.mjs");
 
-const ADDON_ID = "officebird@local";
+const ADDON_ID = "officebird@directinsane.github.io";
 // Must match EMAIL in compose-setup.js.
 const IDENTITY_EMAIL = "tester@example.org";
 const OPEN_MS = 10000;

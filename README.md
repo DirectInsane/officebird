@@ -58,7 +58,7 @@ Requires Thunderbird 153 or later on Windows, macOS or Linux.
 To build it yourself instead, run `scripts/build.sh`; the file lands in `dist/officebird.xpi`.
 
 > [!NOTE]
-> Restart Thunderbird after installing an update. It keeps the add-on's privileged code loaded until then.
+> Thunderbird installs new versions by itself. Restart it after an update: it keeps the add-on's privileged code loaded until then.
 
 > [!TIP]
 > The [Clean themes](https://github.com/bakatamas/thunderbird-clean-themes) by [bakatamas](https://github.com/bakatamas) go well with Officebird.
@@ -76,6 +76,7 @@ To trust a sender, Officebird needs to know which server checks your incoming ma
 |---|---|
 | Sender logos | DuckDuckGo learns which domains mail you, not who you are. Each domain is looked up at most once a month, without cookies or referrer. |
 | Brand logos (BIMI, off by default) | Your DNS-over-HTTPS resolver (Cloudflare or Quad9) sees the domain; the brand's logo server sees your IP address. |
+| Update check | GitHub sees your IP address when Thunderbird looks for a new version, once a day. |
 | Previews and verification | Nobody. Both come from mail already on your computer, and Officebird never runs anything contained in a mail. |
 
 ## Permissions
