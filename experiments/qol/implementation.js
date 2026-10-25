@@ -39,6 +39,7 @@ const DEFAULT_CARD_GAP = 4;
 // Group header height as a multiple of the UI font size.
 const GROUP_HEADER_FACTOR = 2.5;
 const GROUP_HEADER_MIN_PX = 26;
+const COLLAPSED_GROUPS_PROPERTY = "officebirdCollapsedGroups";
 
 function log(...args) {
   console.warn("[qol]", ...args);
@@ -146,7 +147,7 @@ class QolState {
     this.extension = extension;
     this.config = null;
     this.sheetURI = null;
-    this.features = { cards: true, table: true, preview: true, warningBar: false, groupHeaders: true, readerAvatar: true };
+    this.features = { cards: true, table: true, preview: true, warningBar: false, groupHeaders: true, expandGroups: true, readerAvatar: true };
     this.dateFormat = null;
     this.dateTimer = null;
     try {
@@ -188,6 +189,7 @@ class QolState {
     this.previewText = new CappedMap(); // id → text from the full parser
     this.parseQueue = [];
     this.parsing = 0;
+    this.expandingGroups = false;
     this.listeners = new Set();
     this.windows = new Map(); // about:3pane window → restore function
     this.readers = new Map(); // about:message window → restore function
@@ -233,6 +235,9 @@ class QolState {
       old.style?.groupHeaders !== config.style?.groupHeaders;
     for (const win of this.windows.keys()) {
       this.refreshWindow(win, heightChanged);
+      if (config.style?.expandGroups && !old?.style?.expandGroups) {
+        this.expandGroups(win);
+      }
     }
     this.refreshReaders(() => true);
   }
@@ -433,6 +438,7 @@ class QolState {
     }
 
     this.installGroupRows(win, restores);
+    this.installGroupExpansion(win, restores);
 
     const messageBrowser = win.messageBrowser;
     if (messageBrowser) {
@@ -728,6 +734,102 @@ class QolState {
       tree.style.removeProperty("--qol-group-header-height");
       tree.reset();
     });
+  }
+
+  // Thunderbird remembers only "all expanded" or "all collapsed" per folder, so date
+  // groups open collapsed in some folders. With expandGroups every group opens
+  // expanded except the ones collapsed by hand, which are kept per folder.
+  installGroupExpansion(win, restores) {
+    const threadPane = win.threadPane;
+    const tree = win.threadTree;
+    if (typeof threadPane?.restoreThreadState !== "function" || typeof tree?.collapseRowAtIndex !== "function") {
+      log("thread state internals changed; expanded date groups disabled");
+      this.features.expandGroups = false;
+      return;
+    }
+    const state = this;
+    const original = threadPane.restoreThreadState;
+    threadPane.restoreThreadState = function (setState = true, ...rest) {
+      const result = original.call(this, setState, ...rest);
+      if (setState) {
+        state.expandGroups(win);
+      }
+      return result;
+    };
+    const onToggle = event => this.rememberGroup(win, event.detail, event.type === "collapsed");
+    tree.addEventListener("expanded", onToggle);
+    tree.addEventListener("collapsed", onToggle);
+    restores.push(() => {
+      threadPane.restoreThreadState = original;
+      tree.removeEventListener("expanded", onToggle);
+      tree.removeEventListener("collapsed", onToggle);
+    });
+  }
+
+  groupFolder(win) {
+    const wrapper = win.gViewWrapper;
+    // displayedFolder is also set for virtual folders such as the unified ones.
+    if (!this.config?.style?.expandGroups || !wrapper?.showGroupedBySort || !win.gDBView) {
+      return null;
+    }
+    return wrapper.displayedFolder ?? null;
+  }
+
+  collapsedGroups(folder) {
+    try {
+      const list = JSON.parse(folder.msgDatabase.dBFolderInfo.getCharProperty(COLLAPSED_GROUPS_PROPERTY) || "[]");
+      return new Set(Array.isArray(list) ? list.filter(v => typeof v === "string") : []);
+    } catch (e) {
+      return new Set();
+    }
+  }
+
+  expandGroups(win) {
+    const folder = this.groupFolder(win);
+    if (!folder || this.expandingGroups) {
+      return;
+    }
+    const view = win.gDBView;
+    const collapsed = this.collapsedGroups(folder);
+    this.expandingGroups = true;
+    win.threadPane.saveSelection?.();
+    try {
+      if (!(view.viewFlags & Ci.nsMsgViewFlagsType.kExpandAll)) {
+        view.doCommand(Ci.nsMsgViewCommandType.expandAll);
+        win.gViewWrapper._threadExpandAll = true;
+      }
+      // Bottom up, so collapsing a group doesn't move the ones still to check.
+      for (let i = view.rowCount - 1; i >= 0; i--) {
+        const header = win.gViewWrapper.isGroupedByHeaderAtIndex(i) && view.isContainerOpen(i);
+        if (header && collapsed.has(view.cellTextForColumn(i, "subjectCol"))) {
+          win.threadTree.collapseRowAtIndex(i);
+        }
+      }
+    } catch (e) {
+      log("expanding date groups failed", e);
+    } finally {
+      win.threadPane.restoreSelection?.();
+      this.expandingGroups = false;
+    }
+  }
+
+  rememberGroup(win, index, collapsed) {
+    const folder = this.groupFolder(win);
+    if (!folder || this.expandingGroups || !win.gViewWrapper.isGroupedByHeaderAtIndex(index)) {
+      return;
+    }
+    const groups = this.collapsedGroups(folder);
+    const name = win.gDBView.cellTextForColumn(index, "subjectCol");
+    if (collapsed) {
+      groups.add(name);
+    } else {
+      groups.delete(name);
+    }
+    try {
+      folder.msgDatabase.dBFolderInfo.setCharProperty(COLLAPSED_GROUPS_PROPERTY, groups.size ? JSON.stringify([...groups]) : "");
+    } catch (e) {
+      log("could not save collapsed groups", e);
+    }
   }
 
   applyViewToAllFolders(mode) {

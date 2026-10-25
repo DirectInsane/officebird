@@ -13,7 +13,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   bar: { background: "#e8e8e8", text: "#333333", opacity: 60, compact: false },
   table: { dateStyle: "smart" },
   // Tones are how much of the normal text color read mail and previews keep, in %.
-  style: { outlook: true, barWidth: 3, cardRadius: 7, cardGap: 4, readSender: 62, readSubject: 100, groupHeaders: true, cardLook: "theme" },
+  style: { outlook: true, barWidth: 3, cardRadius: 7, cardGap: 4, readSender: 62, readSubject: 100, groupHeaders: true, expandGroups: true, cardLook: "theme" },
   compose: { ribbon: true, styleSet: "default" },
 });
 
@@ -128,6 +128,7 @@ export function normalizeSettings(raw) {
       readSender: int(style.readSender, 40, 100, d.style.readSender),
       readSubject: int(style.readSubject, 40, 100, d.style.readSubject),
       groupHeaders: bool(style.groupHeaders, d.style.groupHeaders),
+      expandGroups: bool(style.expandGroups, d.style.expandGroups),
       cardLook: CARD_LOOKS.includes(style.cardLook) ? style.cardLook : d.style.cardLook,
     },
     compose: {

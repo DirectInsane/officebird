@@ -46,7 +46,7 @@ test("toExperimentConfig maps defaults", () => {
     preview: { enabled: true, lines: 2, tableLines: 1, tone: 45 },
     bar: { background: "#e8e8e8", text: "#333333", opacity: 60, compact: false },
     table: { dateStyle: "smart" },
-    style: { outlook: true, barWidth: 3, cardRadius: 7, cardGap: 4, readSender: 62, readSubject: 100, groupHeaders: true, cardLook: "theme" },
+    style: { outlook: true, barWidth: 3, cardRadius: 7, cardGap: 4, readSender: 62, readSubject: 100, groupHeaders: true, expandGroups: true, cardLook: "theme" },
     compose: { ribbon: true, styleSet: "default" },
   });
 });
@@ -81,6 +81,11 @@ test("card look must be a known look", () => {
 test("compact group headers are a boolean, on by default", () => {
   assert.equal(normalizeSettings({}).style.groupHeaders, true);
   assert.equal(normalizeSettings({ style: { groupHeaders: false } }).style.groupHeaders, false);
+});
+
+test("date groups open expanded unless switched off", () => {
+  assert.equal(normalizeSettings({}).style.expandGroups, true);
+  assert.equal(normalizeSettings({ style: { expandGroups: false } }).style.expandGroups, false);
 });
 
 test("outlook style is a boolean, on by default", () => {
