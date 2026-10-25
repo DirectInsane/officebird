@@ -18,6 +18,7 @@ var qolComposeEngine = (() => {
   // Gmail drops the body's style, and the quoted conversation must not inherit it.
   const SET_FONT = [["font-family", "fontFamily"], ["font-size", "fontSize"], ["color", "color"]];
   const setFont = set => SET_FONT.filter(([, field]) => set[field]);
+  const fontStyle = set => setFont(set).map(([name, field]) => `${name}: ${set[field]}`).join("; ");
   const SET_BLOCKS = {
     p: ["margin", "paragraphMargin"],
     h1: ["color", "headingColor"],
@@ -41,6 +42,9 @@ var qolComposeEngine = (() => {
   const PAINTER_SHEET = "data:text/css," + encodeURIComponent(
     ':root, :root * { cursor: url("chrome://messenger/skin/icons/new/compact/paint-brush.svg") 2 14, text !important; }',
   );
+  // Edits that only type into or delete from the text around the caret: inside a quote
+  // they can't write own text outside it.
+  const TYPING_INPUTS = new Set(["insertText", "deleteContentBackward", "deleteContentForward", "deleteWordBackward", "deleteWordForward"]);
   const SELECTING_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"]);
 
   /** formatting: qolFormatting; onPaintChange: the painter started, stopped or painted. */
@@ -56,6 +60,7 @@ var qolComposeEngine = (() => {
     let painting = null;
     let paintSticky = false;
     let captured = null;
+    let ownEdit = null;
 
     function editor() {
       return page.GetCurrentEditor();
@@ -521,6 +526,19 @@ var qolComposeEngine = (() => {
       return !point.child && point.parent.isConnected ? [point.parent, point.parent.childNodes.length] : null;
     }
 
+    function saveSelectionPoints(doc) {
+      const selection = selectionOf(doc);
+      return [savePoint(selection.anchorNode, selection.anchorOffset), savePoint(selection.focusNode, selection.focusOffset)];
+    }
+
+    function restoreSelectionPoints(doc, [anchor, focus]) {
+      const [anchorNode, anchorOffset] = restorePoint(anchor) ?? [];
+      const [focusNode, focusOffset] = restorePoint(focus) ?? [];
+      if (anchorNode && focusNode) {
+        selectionOf(doc).setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
+      }
+    }
+
     function writeStyle(ed, el, style) {
       if ((el.getAttribute("style") ?? "") === style) {
         return;
@@ -585,15 +603,13 @@ var qolComposeEngine = (() => {
       const set = formatting.STYLE_SETS[key];
       const body = doc.body;
       const current = mailSet(doc);
-      const selection = selectionOf(doc);
-      const anchor = savePoint(selection.anchorNode, selection.anchorOffset);
-      const focus = savePoint(selection.focusNode, selection.focusOffset);
+      const points = saveSelectionPoints(doc);
       const old = bodySet(doc);
       if (old.key !== "default") {
         writeStyle(ed, body, removeDeclarations(body.getAttribute("style") ?? "", old.list, old.first, old.list.length - 1));
       }
       // Own text written outside the wrappers since (e.g. between quotes) gets its own.
-      const font = setFont(set).map(([name, field]) => `${name}: ${set[field]}`).join("; ");
+      const font = fontStyle(set);
       for (const wrapper of setWrappers(doc)) {
         if (font) {
           writeStyle(ed, wrapper, font);
@@ -611,11 +627,7 @@ var qolComposeEngine = (() => {
           setBlockSet(ed, doc, block, current, key);
         }
       }
-      const [anchorNode, anchorOffset] = restorePoint(anchor) ?? [];
-      const [focusNode, focusOffset] = restorePoint(focus) ?? [];
-      if (anchorNode && focusNode) {
-        selection.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
-      }
+      restoreSelectionPoints(doc, points);
     }
 
     function clearFormatting(ed, doc) {
@@ -1017,6 +1029,105 @@ var qolComposeEngine = (() => {
     }
     win.addEventListener("keydown", onKeyDown, true);
 
+    // Own text written outside the wrappers
+
+    /**
+     * Own text the user writes outside the set's wrappers (Enter inside a quote splits it
+     * and leaves the new line between the parts) gets the set's font right away. The
+     * edit runs inside a transaction opened before it, so the wrapping is part of the
+     * edit's undo step: TB 153's nsIEditor can't merge undo steps afterwards.
+     */
+    function onBeforeOwnEdit(event) {
+      // The engine's own editor calls fire beforeinput and input too.
+      if (depth > 0) {
+        return;
+      }
+      endOwnEdit();
+      const type = event.inputType;
+      // Without an inputType: the editor's own transactions (ribbon, Thunderbird).
+      if (destroyed || !type || type.startsWith("history") || type === "insertCompositionText" || event.isComposing) {
+        return;
+      }
+      try {
+        const doc = editDocument(event);
+        if (!doc || !isHTML()) {
+          return;
+        }
+        // Before the set is read: a preview isn't the mail's set.
+        cancelPreview();
+        const key = mailSet(doc);
+        if (key === "default" || !fontStyle(formatting.STYLE_SETS[key]) || staysInPlace(doc, type)) {
+          return;
+        }
+        const ed = editor();
+        ed.beginTransaction();
+        // Ends the transaction should the edit not happen (cancelled): its input never comes.
+        ownEdit = { ed, doc, key, timer: win.setTimeout(endOwnEdit, 0) };
+      } catch (e) {
+        log("preparing an edit failed", e);
+      }
+    }
+
+    function onOwnEdit(event) {
+      if (!ownEdit || depth > 0 || editDocument(event) !== ownEdit.doc) {
+        return;
+      }
+      const { ed, doc, key } = ownEdit;
+      depth++;
+      try {
+        const runs = ownRuns(doc);
+        if (runs.length) {
+          const points = saveSelectionPoints(doc);
+          const font = fontStyle(formatting.STYLE_SETS[key]);
+          for (const run of runs) {
+            wrap(ed, doc, run, font);
+          }
+          restoreSelectionPoints(doc, points);
+        }
+      } catch (e) {
+        log("wrapping own text failed", e);
+      } finally {
+        depth--;
+        endOwnEdit();
+      }
+    }
+
+    function endOwnEdit() {
+      if (!ownEdit) {
+        return;
+      }
+      const { ed, timer } = ownEdit;
+      ownEdit = null;
+      win.clearTimeout(timer);
+      try {
+        ed.endTransaction();
+      } catch (e) {
+        log("ending an edit failed", e);
+      }
+    }
+
+    function editDocument(event) {
+      const doc = editor()?.document;
+      const target = event.target;
+      return doc && (target === doc || target.ownerDocument === doc) ? doc : null;
+    }
+
+    /**
+     * Skipped where the edit can't leave own text outside a wrapper, so typing stays one
+     * undo step: within one wrapper, and typing within one quote, forward or signature.
+     */
+    function staysInPlace(doc, type) {
+      const { anchorNode, focusNode } = selectionOf(doc);
+      const holder = node => (node?.nodeType === 1 ? node : node?.parentElement)?.closest(`div.${SET_WRAPPER}, ${SET_BOUNDARY}`) ?? null;
+      const held = holder(anchorNode);
+      return held !== null && held === holder(focusNode) && (isSetWrapper(held) || TYPING_INPUTS.has(type));
+    }
+
+    // The editor's events reach the compose window: capturing there runs before the
+    // preview's listeners on the mail's document.
+    win.addEventListener("beforeinput", onBeforeOwnEdit, true);
+    win.addEventListener("input", onOwnEdit, true);
+
     // Live preview
 
     function saveSelection(doc) {
@@ -1212,6 +1323,9 @@ var qolComposeEngine = (() => {
       cancelPreview();
       forgetUndone();
       win.removeEventListener("keydown", onKeyDown, true);
+      win.removeEventListener("beforeinput", onBeforeOwnEdit, true);
+      win.removeEventListener("input", onOwnEdit, true);
+      endOwnEdit();
       captured = null;
       destroyed = true;
     }

@@ -2275,6 +2275,98 @@ test("a style set keeps the selection, and new paragraphs keep the set's font", 
   closeCompose(win);
 });
 
+const QUOTE_TO_SPLIT = '<p>Mine</p><blockquote type="cite"><p>First half second half</p></blockquote>';
+
+test("a line written between two quotes gets the set's font in the same undo step as the Enter", async () => {
+  const win = await openCompose({ html: QUOTE_TO_SPLIT, type: Ci.nsIMsgCompType.Reply });
+  const e = win.qolCompose.engine;
+  const doc = editorDocument(win);
+  assert(e.applyStyleSet("modern"));
+  const quoteFont = fontOf(doc.querySelector('blockquote[type="cite"] p'));
+  select(win, "second half", 0, 0);
+  const before = editorHTML(win);
+  pressKey(win, "Enter");
+  const quotes = () => [...doc.querySelectorAll('blockquote[type="cite"]')];
+  assertEqual(quotes().length, 2);
+  const gap = quotes()[0].nextElementSibling;
+  assert(gap?.matches("div.qol-own-text") && gap.nextElementSibling === quotes()[1], editorHTML(win));
+  assertEqual(fontOf(gap), '"Helvetica Neue", Arial, sans-serif / 14.6667px');
+  const wrapped = editorHTML(win);
+  // One step: the Enter and the wrapping.
+  win.goDoCommand("cmd_undo");
+  assertEqual(editorHTML(win), before);
+  win.goDoCommand("cmd_redo");
+  assertEqual(editorHTML(win), wrapped);
+  select(win, "second half", 0, 0);
+  win.goDoCommand("cmd_undo");
+  assertEqual(editorHTML(win), before);
+  pressKey(win, "Enter");
+  assertEqual(editorHTML(win), wrapped);
+  // The caret stays in the new line: what is typed there gets the set's font.
+  pressWith(win, [], ["H", "i"]);
+  const line = quotes()[0].nextElementSibling;
+  assert(line?.matches("div.qol-own-text") && line.textContent === "Hi" && line.nextElementSibling === quotes()[1], editorHTML(win));
+  const typed = editorHTML(win);
+  assertEqual(fontOf(select(win, "Hi").startContainer.parentElement), '"Helvetica Neue", Arial, sans-serif / 14.6667px');
+  // The typing is a step of its own (it can't join a transaction that has ended).
+  win.goDoCommand("cmd_undo");
+  assertEqual(editorHTML(win), wrapped);
+  win.goDoCommand("cmd_undo");
+  assertEqual(editorHTML(win), before);
+  win.goDoCommand("cmd_redo");
+  win.goDoCommand("cmd_redo");
+  assertEqual(editorHTML(win), typed);
+  assertEqual(quotes().map(q => fontOf(q.querySelector("p"))), [quoteFont, quoteFont]);
+  assertEqual(e.activeSet, "modern");
+  closeCompose(win);
+});
+
+test("a line written between two quotes during a set's preview gets the mail's set", async () => {
+  const win = await openCompose({ html: QUOTE_TO_SPLIT, type: Ci.nsIMsgCompType.Reply });
+  const e = win.qolCompose.engine;
+  const doc = editorDocument(win);
+  assert(e.applyStyleSet("modern"));
+  select(win, "second half", 0, 0);
+  const before = editorHTML(win);
+  assert(e.preview({ op: "styleSet", value: "classic" }));
+  pressKey(win, "Enter");
+  assert(!e.previewActive);
+  const gap = doc.querySelector('blockquote[type="cite"]').nextElementSibling;
+  assert(gap?.matches("div.qol-own-text"), editorHTML(win));
+  assertEqual(fontOf(gap), '"Helvetica Neue", Arial, sans-serif / 14.6667px');
+  win.goDoCommand("cmd_undo");
+  assertEqual(editorHTML(win), before);
+  closeCompose(win);
+});
+
+test("typing in a quote or in the set's wrapper stays one undo step", async () => {
+  const win = await openCompose({ html: QUOTE_TO_SPLIT, type: Ci.nsIMsgCompType.Reply });
+  assert(win.qolCompose.engine.applyStyleSet("modern"));
+  for (const [text, at] of [["second half", 0], ["Mine", 4]]) {
+    select(win, text, at, at);
+    const before = editorHTML(win);
+    pressWith(win, [], ["a", "b", "c"]);
+    assert(editorHTML(win) !== before);
+    win.goDoCommand("cmd_undo");
+    assertEqual(editorHTML(win), before);
+  }
+  closeCompose(win);
+});
+
+test("with the Default set, a line written between two quotes stays unwrapped", async () => {
+  const win = await openCompose({ html: QUOTE_TO_SPLIT, type: Ci.nsIMsgCompType.Reply });
+  const doc = editorDocument(win);
+  select(win, "second half", 0, 0);
+  const before = editorHTML(win);
+  pressKey(win, "Enter");
+  pressWith(win, [], ["H", "i"]);
+  assertEqual(doc.querySelectorAll('blockquote[type="cite"]').length, 2);
+  assert(!doc.querySelector("div.qol-own-text"), editorHTML(win));
+  win.goDoCommand("cmd_undo");
+  assertEqual(editorHTML(win), before);
+  closeCompose(win);
+});
+
 test("a set stored on the body is recognized and taken out", async () => {
   const win = await openCompose({ html: '<p>Hello world</p><blockquote type="cite"><p>Old</p></blockquote>' });
   const e = win.qolCompose.engine;
