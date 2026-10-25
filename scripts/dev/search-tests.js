@@ -652,6 +652,27 @@ test("a cross-field OR marks only its own rows", async () => {
   }
 });
 
+test("the folder chip names the folder chosen with in:", async () => {
+  const name = archive.localizedName;
+  const others = [...MailServices.accounts.allFolders].filter(folder => !folder.isServer && folder.URI !== archive.URI && folder.localizedName === name);
+  await searchFor(`in:${name.toLowerCase()}`);
+  assertEqual(scopeChip("folder").textContent, `${others.length ? `${name} · ${archive.server.prettyName}` : name} · 3`);
+  // A second folder of that name: the account tells them apart.
+  const secondRoot = secondInbox.server.rootFolder.QueryInterface(Ci.nsIMsgLocalMailFolder);
+  const twin = secondRoot.createLocalSubfolder(archive.name);
+  try {
+    await searchFor(`in:"${archive.server.prettyName}/${name.toLowerCase()}"`);
+    assertEqual(scopeChip("folder").textContent, `${name} · ${archive.server.prettyName} · 3`);
+    // Both folders searched: the name alone.
+    await searchFor(`in:${name.toLowerCase()}`);
+    assertEqual(scopeChip("folder").textContent, `${name} · 3`);
+  } finally {
+    results.end(win);
+    twin.deleteSelf(null);
+    secondRoot.getFolderWithFlags(Ci.nsMsgFolderFlags.Trash)?.getChildNamed(archive.name)?.deleteSelf(null);
+  }
+});
+
 test("chip click switches scope without new search", async () => {
   await searchFor("from:alice");
   let runs = 0;

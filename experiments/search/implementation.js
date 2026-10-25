@@ -471,9 +471,21 @@ var qolSearch = (() => {
       );
     }
 
+    // The folder's own name, not the typed one; like the card labels, with the account
+    // when another folder has the same name.
     folderLabel(pane, query) {
       const chosen = query.and.flat().find(leaf => leaf.field === "in" && !leaf.negated && !leaf.error);
-      return chosen ? chosen.value : pane.gFolder?.localizedName ?? "";
+      if (!chosen) {
+        return pane.gFolder?.localizedName ?? "";
+      }
+      const infos = this.folderInfos();
+      const uris = this.libs.qolSearchTerms.matchFolders(infos, chosen.value);
+      const folder = infos.find(info => info.uri === uris[0]);
+      if (!folder) {
+        return chosen.value;
+      }
+      const shared = uris.length === 1 && infos.some(info => info.uri !== folder.uri && info.name === folder.name);
+      return shared ? `${folder.name} · ${folder.account}` : folder.name;
     }
 
     progress(search, state) {
