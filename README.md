@@ -95,7 +95,7 @@ Officebird also uses two experiment APIs, because Thunderbird's regular add-on A
 ## Limitations
 
 - Previews and verification work for mail stored on your computer: local folders, and IMAP folders kept for offline use (Thunderbird's default).
-- Search finds whole words and word beginnings in the mail text through Thunderbird's full-text index. Other parts of words are found by reading the stored mails, which takes longer in large mailboxes. Like previews, this reads mail stored on your computer.
+- Search finds whole words and word beginnings in the mail text through Thunderbird's full-text index. Other parts of words are found by reading the stored mails, which takes longer in large mailboxes. Mail kept only on the server is searched by the server, so those results depend on what the server supports.
 - Plain-text mail has no formatting, so the ribbon's formatting tools have nothing to do there.
 - Officebird hooks into Thunderbird's internal code. If a future version changes it, the affected feature turns itself off; *Status* in the settings shows which.
 
