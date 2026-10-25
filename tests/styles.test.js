@@ -183,6 +183,8 @@ test("compact group headers: header rows in cards view are one slim line", () =>
   assert.match(css, /#threadTree tr\.card-layout\[data-properties~="dummy"\]\s*\{[^}]*height:\s*var\(--qol-group-header-height, 28px\) !important/);
   assert.match(css, /\[data-properties~="dummy"\] \.thread-card-row,[^{]*\.qol-avatar,[^{]*\.qol-preview,[^{]*\.qol-read-toggle\s*\{[^}]*display:\s*none/);
   assert.match(css, /\[data-properties~="dummy"\] \.card-container\s*\{[^}]*background:\s*transparent !important[^}]*border-bottom:/);
+  // Thunderbird's divider between collapsed headers would cross the slim header's text.
+  assert.match(css, /\[data-properties~="dummy"\] \.card-container::after\s*\{[^}]*display:\s*none/);
 });
 
 test("compact group headers: also without the Outlook style", () => {

@@ -286,6 +286,10 @@ ${dummy} .card-container {
   border-radius: 0 !important;
   box-shadow: none !important;
 }
+/* Thunderbird's divider between collapsed headers; the bottom border above replaces it. */
+${dummy} .card-container::after {
+  display: none !important;
+}
 ${dummy}.selected .card-container {
   background: color-mix(in srgb, currentColor 10%, transparent) !important;
 }
