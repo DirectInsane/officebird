@@ -2353,6 +2353,102 @@ test("typing in a quote or in the set's wrapper stays one undo step", async () =
   closeCompose(win);
 });
 
+test("an Enter another listener cancels leaves no transaction open for the ribbon", async () => {
+  const win = await openCompose({ html: QUOTE_TO_SPLIT, type: Ci.nsIMsgCompType.Reply });
+  const e = win.qolCompose.engine;
+  const doc = editorDocument(win);
+  assert(e.applyStyleSet("modern"));
+  // As a mail that opens with its set: nothing to undo.
+  win.GetCurrentEditor().clearUndoRedo();
+  const cancel = event => {
+    if (event.inputType === "insertParagraph") {
+      event.preventDefault();
+    }
+  };
+  doc.addEventListener("beforeinput", cancel);
+  try {
+    select(win, "second half", 0, 0);
+    const before = editorHTML(win);
+    pressKey(win, "Enter");
+    assertEqual(editorHTML(win), before);
+    // In the same task as the Enter: a preview is taken back, a ribbon action is its own step.
+    select(win, "Mine");
+    assert(e.preview({ op: "italic" }));
+    e.cancelPreview();
+    assertEqual(editorHTML(win), before);
+    assert(e.apply({ op: "bold" }));
+    assert(win.GetCurrentEditor().canUndo && editorHTML(win) !== before);
+    win.goDoCommand("cmd_undo");
+    assertEqual(editorHTML(win), before);
+    select(win, "second half", 0, 0);
+    pressWith(win, [], ["a", "b"]);
+    assert(editorHTML(win) !== before);
+    win.goDoCommand("cmd_undo");
+    assertEqual(editorHTML(win), before);
+  } finally {
+    doc.removeEventListener("beforeinput", cancel);
+  }
+  closeCompose(win);
+});
+
+test("an Enter in the signature stays one undo step with the typing after it", async () => {
+  const html = '<p>Mine</p><blockquote type="cite"><p>Old</p></blockquote><div class="moz-signature">-- <br>Sig line</div>';
+  const win = await openCompose({ html, type: Ci.nsIMsgCompType.Reply });
+  assert(win.qolCompose.engine.applyStyleSet("modern"));
+  select(win, "Sig line", 3, 3);
+  const before = editorHTML(win);
+  pressKey(win, "Enter");
+  pressWith(win, [], ["a", "b"]);
+  assert(editorHTML(win) !== before);
+  win.goDoCommand("cmd_undo");
+  assertEqual(editorHTML(win), before);
+  closeCompose(win);
+});
+
+// Drops text at offset in the first text node of target, as a drag from outside the mail does.
+function dropText(win, target, offset, text) {
+  const view = editorDocument(win).defaultView;
+  const EU = { window: view, parent: view, _EU_Ci: Ci, _EU_Cc: Cc };
+  Services.scriptloader.loadSubScript("chrome://remote/content/external/EventUtils.js", EU);
+  EU.startDragSession(view, "copy");
+  const session = view.windowUtils.dragSession;
+  const dataTransfer = new view.DataTransfer();
+  dataTransfer.setData("text/plain", text);
+  dataTransfer.dropEffect = "copy";
+  session.dataTransfer = dataTransfer;
+  try {
+    const range = target.ownerDocument.createRange();
+    range.setStart(target.firstChild, offset);
+    range.setEnd(target.firstChild, offset + 1);
+    const box = range.getBoundingClientRect();
+    const at = { clientX: box.left, clientY: box.top + box.height / 2 };
+    EU.sendDragEvent(EU.createDragEventObject("dragover", target, view, dataTransfer, at), target, view);
+    EU.sendDragEvent(EU.createDragEventObject("drop", target, view, dataTransfer, at), target, view);
+  } finally {
+    session.endDragSession(true);
+  }
+}
+
+test("text dropped onto own text outside the wrappers gets the set's font, whatever the selection", async () => {
+  const win = await openCompose({ html: '<p>Mine</p><blockquote type="cite"><p>A</p></blockquote><blockquote type="cite"><p>B</p></blockquote>', type: Ci.nsIMsgCompType.Reply });
+  const doc = editorDocument(win);
+  assert(win.qolCompose.engine.applyStyleSet("modern"));
+  // Own text outside the wrappers, as a mail saved before this fix keeps it.
+  const loose = doc.createElement("p");
+  loose.textContent = "Loose here";
+  doc.body.insertBefore(loose, doc.querySelectorAll('blockquote[type="cite"]')[1]);
+  // The selection stays in the wrapper: a drop doesn't move it first.
+  select(win, "Mine", 2, 2);
+  const before = editorHTML(win);
+  dropText(win, loose, 5, "Dropped");
+  assertEqual(loose.textContent, "LooseDropped here");
+  assert(loose.parentNode.matches("div.qol-own-text"), editorHTML(win));
+  assertEqual(fontOf(loose), '"Helvetica Neue", Arial, sans-serif / 14.6667px');
+  win.goDoCommand("cmd_undo");
+  assertEqual(editorHTML(win), before);
+  closeCompose(win);
+});
+
 test("with the Default set, a line written between two quotes stays unwrapped", async () => {
   const win = await openCompose({ html: QUOTE_TO_SPLIT, type: Ci.nsIMsgCompType.Reply });
   const doc = editorDocument(win);

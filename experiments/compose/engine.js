@@ -77,6 +77,9 @@ var qolComposeEngine = (() => {
      * TB 153's nsIEditor has no transactionManager: the modification count tells whether anything happened.
      */
     function transaction(fn) {
+      if (depth === 0) {
+        endOwnEdit();
+      }
       const ed = editor();
       const before = ed.getModificationCount();
       depth++;
@@ -780,6 +783,7 @@ var qolComposeEngine = (() => {
 
     /** No undo step, and the mail does not count as changed (closing it asks nothing). */
     function applyOpeningSet(key) {
+      endOwnEdit();
       if (destroyed || !isHTML() || !formatting.STYLE_SET_KEYS.includes(key)) {
         return false;
       }
@@ -1055,16 +1059,28 @@ var qolComposeEngine = (() => {
         }
         // Before the set is read: a preview isn't the mail's set.
         cancelPreview();
+        if (!writesOutside(doc, event)) {
+          return;
+        }
         const key = mailSet(doc);
-        if (key === "default" || !fontStyle(formatting.STYLE_SETS[key]) || staysInPlace(doc, type)) {
+        if (key === "default" || !fontStyle(formatting.STYLE_SETS[key])) {
           return;
         }
         const ed = editor();
         ed.beginTransaction();
-        // Ends the transaction should the edit not happen (cancelled): its input never comes.
-        ownEdit = { ed, doc, key, timer: win.setTimeout(endOwnEdit, 0) };
+        ownEdit = { ed, doc, key, timer: null };
+        // Should the edit not happen after all, its input never comes.
+        ownEdit.timer = win.setTimeout(endOwnEdit, 0);
       } catch (e) {
         log("preparing an edit failed", e);
+        endOwnEdit();
+      }
+    }
+
+    // In the system group: after every listener that could cancel the edit.
+    function onBeforeOwnEditDone(event) {
+      if (ownEdit && depth === 0 && event.defaultPrevented) {
+        endOwnEdit();
       }
     }
 
@@ -1112,20 +1128,54 @@ var qolComposeEngine = (() => {
       return doc && (target === doc || target.ownerDocument === doc) ? doc : null;
     }
 
+    /** The body's child holding node; null at body level. */
+    function bodyChild(doc, node) {
+      if (!node || node === doc.body || !doc.body.contains(node)) {
+        return null;
+      }
+      let el = node;
+      while (el.parentNode !== doc.body) {
+        el = el.parentNode;
+      }
+      return el;
+    }
+
     /**
-     * Skipped where the edit can't leave own text outside a wrapper, so typing stays one
-     * undo step: within one wrapper, and typing within one quote, forward or signature.
+     * Whether the edit can leave own text outside a wrapper, judged where it lands (a
+     * drop's target, not the selection): at body level, across blocks, in own text
+     * outside the wrappers, or splitting a quote. Typing elsewhere stays one undo step.
      */
-    function staysInPlace(doc, type) {
-      const { anchorNode, focusNode } = selectionOf(doc);
-      const holder = node => (node?.nodeType === 1 ? node : node?.parentElement)?.closest(`div.${SET_WRAPPER}, ${SET_BOUNDARY}`) ?? null;
-      const held = holder(anchorNode);
-      return held !== null && held === holder(focusNode) && (isSetWrapper(held) || TYPING_INPUTS.has(type));
+    function writesOutside(doc, event) {
+      const ranges = event.getTargetRanges();
+      let nodes;
+      if (ranges.length) {
+        nodes = ranges.flatMap(range => [range.startContainer, range.endContainer]);
+      } else {
+        const selection = selectionOf(doc);
+        nodes = [selection.anchorNode, selection.focusNode];
+      }
+      const blocks = new Set(nodes.map(node => bodyChild(doc, node)));
+      if (blocks.size > 1) {
+        return true;
+      }
+      const [block] = blocks;
+      if (!block || block.nodeType !== 1) {
+        return true;
+      }
+      if (isSetWrapper(block)) {
+        return false;
+      }
+      // Enter splits a reply's quote at body level; signatures and forwards keep their lines.
+      if (block.matches('blockquote[type="cite"]')) {
+        return !TYPING_INPUTS.has(event.inputType);
+      }
+      return !block.matches(NOT_TEXT) && !block.matches(SET_BOUNDARY) && !block.querySelector(SET_BOUNDARY);
     }
 
     // The editor's events reach the compose window: capturing there runs before the
     // preview's listeners on the mail's document.
     win.addEventListener("beforeinput", onBeforeOwnEdit, true);
+    win.addEventListener("beforeinput", onBeforeOwnEditDone, { mozSystemGroup: true });
     win.addEventListener("input", onOwnEdit, true);
 
     // Live preview
@@ -1242,6 +1292,10 @@ var qolComposeEngine = (() => {
     }
 
     function cancelPreview() {
+      // Its undo would land in the edit's open transaction.
+      if (depth === 0) {
+        endOwnEdit();
+      }
       if (!shown) {
         return;
       }
@@ -1324,6 +1378,7 @@ var qolComposeEngine = (() => {
       forgetUndone();
       win.removeEventListener("keydown", onKeyDown, true);
       win.removeEventListener("beforeinput", onBeforeOwnEdit, true);
+      win.removeEventListener("beforeinput", onBeforeOwnEditDone, { mozSystemGroup: true });
       win.removeEventListener("input", onOwnEdit, true);
       endOwnEdit();
       captured = null;
