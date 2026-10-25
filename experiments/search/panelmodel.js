@@ -26,28 +26,27 @@ var qolSearchPanelModel = (() => {
     return leaf;
   }
 
-  // An OR group the panel can show holds chips of a single field: they read as one row,
-  // with orBefore joining a chip to the one before it. The fields of any other OR group
-  // are listed in crossOr; such a group's flags and dates are not shown, since they do
-  // not apply to every result.
-  function isCrossGroup(group) {
+  // An OR group the rows can show holds chips of a single field: they read as one row,
+  // with orBefore joining a chip to the one before it. Any other OR group (across
+  // fields, or of flags or dates) is kept as it is in `kept`, outside the rows, so
+  // editing the rows leaves it untouched.
+  function isKeptGroup(group) {
     return group.length > 1 && !(Object.hasOwn(CHIP_ROWS, group[0].field) && group.every((leaf) => leaf.field === group[0].field));
   }
 
   function rowsFromQuery(query) {
     const rows = {
       from: [], to: [], subject: [], body: [], folder: [], tags: [],
-      after: null, before: null, attachment: "any", unread: "any", flagged: "any", crossOr: [],
+      after: null, before: null, attachment: "any", unread: "any", flagged: "any", kept: [],
     };
-    const crossFields = new Set();
     for (const group of query.and) {
-      const cross = isCrossGroup(group);
+      if (isKeptGroup(group)) {
+        rows.kept.push(group.map((leaf) => ({ ...leaf })));
+        continue;
+      }
       group.forEach((leaf, index) => {
-        if (cross) crossFields.add(leaf.field);
         if (Object.hasOwn(CHIP_ROWS, leaf.field)) {
-          rows[CHIP_ROWS[leaf.field]].push(chipFromLeaf(leaf, index > 0 && !cross));
-        } else if (cross) {
-          // Shown only by the row's "or" marker.
+          rows[CHIP_ROWS[leaf.field]].push(chipFromLeaf(leaf, index > 0));
         } else if (Object.hasOwn(DATE_ROWS, leaf.field)) {
           rows[DATE_ROWS[leaf.field]] = chipFromLeaf(leaf, false);
         } else if (Object.hasOwn(FLAG_ROWS, leaf.field)) {
@@ -55,8 +54,16 @@ var qolSearchPanelModel = (() => {
         }
       });
     }
-    rows.crossOr = FIELD_ORDER.filter((field) => crossFields.has(field));
     return rows;
+  }
+
+  function hasCriteria(rows) {
+    return (
+      Object.values(CHIP_ROWS).some((key) => rows[key].length) ||
+      Object.values(DATE_ROWS).some((key) => rows[key]) ||
+      Object.values(FLAG_ROWS).some((key) => rows[key] !== "any") ||
+      rows.kept.length > 0
+    );
   }
 
   // The OR groups of one chip row: orBefore joins a chip to the group before it.
@@ -69,7 +76,7 @@ var qolSearchPanelModel = (() => {
     return groups;
   }
 
-  // Rows are ANDed, and so are the groups within a row.
+  // Rows are ANDed, and so are the groups within a row; kept groups follow unchanged.
   function queryFromRows(rows) {
     const and = [];
     for (const field of FIELD_ORDER) {
@@ -85,8 +92,9 @@ var qolSearchPanelModel = (() => {
         }
       }
     }
+    for (const group of rows.kept) and.push(group.map((leaf) => ({ ...leaf })));
     return { and };
   }
 
-  return { rowsFromQuery, queryFromRows };
+  return { rowsFromQuery, queryFromRows, hasCriteria };
 })();

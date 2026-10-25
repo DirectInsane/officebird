@@ -17,11 +17,6 @@ var qolSearchPanel = (() => {
     ["subject", "subject", "phWords"],
     ["body", "contains", "phWords"],
   ];
-  // Rows key -> query fields, for the "or" marker of an OR the row cannot show.
-  const ROW_FIELDS = {
-    from: ["from"], to: ["to"], subject: ["subject"], body: ["body"], date: ["after", "before"],
-    folder: ["in"], tags: ["tag"], flags: ["attachment", "unread", "flagged"],
-  };
   const FLAGS = [
     ["attachment", "attachments"],
     ["unread", "unread"],
@@ -31,14 +26,6 @@ var qolSearchPanel = (() => {
 
   function emptyRows() {
     return qolSearchPanelModel.rowsFromQuery({ and: [] });
-  }
-
-  function hasCriteria(rows) {
-    return (
-      ["from", "to", "subject", "body", "folder", "tags"].some((key) => rows[key].length) ||
-      Boolean(rows.after || rows.before) ||
-      FLAGS.some(([key]) => rows[key] !== "any")
-    );
   }
 
   // A typed chip: "-word" excludes, quotes make a phrase.
@@ -112,7 +99,8 @@ var qolSearchPanel = (() => {
       clearButton.hidden = !input.value;
       let criteria = false;
       try {
-        criteria = hasCriteria(qolSearchPanelModel.rowsFromQuery(qolSearchQuery.parse(input.value)));
+        const fieldRows = qolSearchPanelModel.rowsFromQuery(qolSearchQuery.parse(input.value));
+        criteria = qolSearchPanelModel.hasCriteria(fieldRows);
       } catch (e) {
         win.console.warn("officebird search: query not read", e);
       }
@@ -278,21 +266,38 @@ var qolSearchPanel = (() => {
       return suggest ? h("div", { class: "qol-panel-field" }, box, suggestions) : box;
     }
 
-    // Marks a row whose terms take part in an OR it cannot show: one across fields, or
-    // one between tags, whose buttons have no "or" between them.
-    function orMarker(key) {
-      const marker = h("span", { class: "qol-row-or", hidden: "hidden" }, text("or"));
-      renders.push(() => {
-        const cross = ROW_FIELDS[key].some((field) => rows.crossOr.includes(field));
-        marker.hidden = !(cross || (key === "tags" && rows.tags.some((chip) => chip.orBefore)));
-      });
-      return marker;
-    }
-
     // The row's two grid cells, in a wrapper that does not take part in the layout.
     function rowElement(key, labelKey, control) {
-      const label = h("span", { class: "qol-panel-label" }, text(labelKey), " ", orMarker(key));
+      const label = h("span", { class: "qol-panel-label" }, text(labelKey));
+      if (key === "tags") {
+        // Tag buttons have no "or" between them.
+        const marker = h("span", { class: "qol-row-or", hidden: "hidden" }, text("or"));
+        renders.push(() => (marker.hidden = !rows.tags.some((chip) => chip.orBefore)));
+        label.append(" ", marker);
+      }
       return h("div", { class: "qol-panel-row", "data-row": key }, label, control);
+    }
+
+    // OR groups the rows cannot show, read-only: the search keeps them as they are.
+    function keptRow() {
+      const label = h("span", { class: "qol-panel-label" }, text("anyOf"));
+      const line = h("div", { class: "qol-panel-line qol-kept" });
+      renders.push(() => {
+        label.hidden = line.hidden = !rows.kept.length;
+        line.replaceChildren(
+          ...rows.kept.map((group) => {
+            const box = h("span", { class: "qol-kept-group" });
+            group.forEach((leaf, index) => {
+              if (index > 0) box.append(h("span", { class: "qol-chip-gap or" }, text("or")));
+              const chip = h("span", { class: "qol-chip" }, qolSearchQuery.print({ and: [[leaf]] }, lang));
+              chip.classList.toggle("excluded", leaf.negated);
+              box.append(chip);
+            });
+            return box;
+          })
+        );
+      });
+      return h("div", { class: "qol-panel-row", "data-row": "kept" }, label, line);
     }
 
     function dateInput(key) {
@@ -384,7 +389,7 @@ var qolSearchPanel = (() => {
       h("label", {}, text("dateBefore"), " ", dateInput("before"))
     );
     const tip = h("div", { class: "qol-panel-tip" }, text("tip"));
-    renders.push(() => (tip.hidden = !(hasCriteria(rows) && tipShown())));
+    renders.push(() => (tip.hidden = !(qolSearchPanelModel.hasCriteria(rows) && tipShown())));
     const clearAll = h("button", { class: "qol-panel-clear", type: "button" }, text("clear"));
     const searchButton = h("button", { class: "qol-panel-search", type: "button" }, text("search"));
     const body = h(
@@ -404,7 +409,9 @@ var qolSearchPanel = (() => {
         })
       ),
       rowElement("tags", "tags", tagsControl()),
-      h("div", { class: "qol-panel-row", "data-row": "flags" }, h("span", { class: "qol-panel-label" }, orMarker("flags")), flagsControl()),
+      h("span", { class: "qol-panel-label" }),
+      flagsControl(),
+      keptRow(),
       h("span", { class: "qol-panel-label" }),
       scopeControl(),
       tip,

@@ -625,7 +625,7 @@ test("the panel keeps a query it cannot show unless it is edited", async () => {
   const text = "from:alice OR subject:Rechnung";
   setText(fieldInput(), text);
   const panel = await openPanel();
-  assert(row(panel, "from").querySelector(".qol-row-or:not([hidden])"), "the From row has no or marker");
+  assertEqual(keptGroups(panel), [[printed("from:alice"), printed("subject:Rechnung")]]);
   panel.querySelector(".qol-panel-search").click();
   assertEqual(fieldInput().value, text);
   await waitFor(() => results.isActive(win) && !chipRow().querySelector(".qol-searching:not([hidden])"), 10000);
@@ -635,6 +635,15 @@ test("the panel keeps a query it cannot show unless it is edited", async () => {
 // The rows whose "or" marker shows.
 function orMarkedRows(panel) {
   return [...panel.querySelectorAll(".qol-row-or:not([hidden])")].map(marker => marker.closest("[data-row]").dataset.row);
+}
+
+// The read-only OR groups the rows cannot show, as the texts of their chips.
+function keptGroups(panel) {
+  const line = row(panel, "kept").querySelector(".qol-kept");
+  if (line.hidden) {
+    return [];
+  }
+  return [...line.querySelectorAll(".qol-kept-group")].map(group => [...group.querySelectorAll(".qol-chip")].map(chip => chip.textContent));
 }
 
 function flagState(panel, flag) {
@@ -649,23 +658,44 @@ test("the panel shows an OR group of one field and the terms after it", async ()
     assertEqual(row(panel, "from").querySelectorAll(".qol-chip-gap.or").length, 1);
     assertEqual(row(panel, "subject").querySelectorAll(".qol-chip").length, 1);
     assertEqual(orMarkedRows(panel), []);
+    assertEqual(keptGroups(panel), []);
     assertEqual(flagState(panel, "unread"), "no");
   } finally {
     panel.hidePopup();
   }
 });
 
-test("a cross-field OR marks only its own rows", async () => {
+test("a cross-field OR shows as a read-only group, the other terms in their rows", async () => {
   setText(fieldInput(), "from:alice OR is:unread subject:Rechnung has:attachment");
   const panel = await openPanel();
   try {
-    assertEqual(orMarkedRows(panel), ["from", "flags"]);
-    assertEqual(row(panel, "from").querySelectorAll(".qol-chip-gap.or").length, 0);
+    assertEqual(keptGroups(panel), [[printed("from:alice"), printed("is:unread")]]);
+    assertEqual(orMarkedRows(panel), []);
+    assertEqual(row(panel, "from").querySelectorAll(".qol-chip").length, 0);
+    assertEqual(row(panel, "subject").querySelectorAll(".qol-chip").length, 1);
     assertEqual(flagState(panel, "unread"), "any");
     assertEqual(flagState(panel, "attachment"), "yes");
   } finally {
     panel.hidePopup();
   }
+});
+
+test("editing the panel keeps an OR group of flags", async () => {
+  const text = "has:attachment OR is:unread";
+  const expected = (await search(text)).last;
+  setText(fieldInput(), text);
+  assert(field().querySelector(".qol-search-filter").classList.contains("active"), "the filter button is not active");
+  const panel = await openPanel();
+  // Flagged on and off again: an edit that changes nothing.
+  const flagged = panel.querySelector('.qol-flag[data-flag="flagged"]');
+  flagged.click();
+  flagged.click();
+  assertEqual(flagState(panel, "flagged"), "any");
+  panel.querySelector(".qol-panel-search").click();
+  assertEqual(fieldInput().value, printed(text));
+  await waitFor(() => results.isActive(win) && !chipRow().querySelector(".qol-searching:not([hidden])"), 10000);
+  assertEqual(shownKeys(), sortedIds(expected.folderIds));
+  assertEqual(shownKeys(), seededSet(3, 5));
 });
 
 test("the folder chip names the folder chosen with in:", async () => {

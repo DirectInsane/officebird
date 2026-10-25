@@ -195,6 +195,22 @@
   }
 }
 
+#qol-search-panel .qol-kept-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+
+  & .qol-chip {
+    cursor: default;
+  }
+
+  & .qol-chip-gap,
+  & .qol-chip-gap:hover {
+    background-color: transparent;
+    cursor: default;
+  }
+}
+
 #qol-search-panel .qol-suggest {
   display: flex;
   flex-wrap: wrap;
