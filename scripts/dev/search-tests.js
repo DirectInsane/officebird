@@ -245,14 +245,18 @@ const secondInbox = MailServices.accounts.findServer("searchsecond", "search.tes
 const seededFolders = [inbox, archive, secondInbox];
 
 // Seeded mails by their number in search-setup.js (Message-ID search-N@example.org).
-function seeded(n) {
+function seededHdr(n) {
   for (const folder of seededFolders) {
     const hdr = folder.msgDatabase.getMsgHdrForMessageID(`search-${n}@example.org`);
     if (hdr) {
-      return keyOf(hdr);
+      return hdr;
     }
   }
   throw new Error(`seeded mail ${n} not found`);
+}
+
+function seeded(n) {
+  return keyOf(seededHdr(n));
 }
 
 function seededSet(...numbers) {
@@ -394,7 +398,8 @@ test("cancel stops progress", async () => {
   assertEqual(calls, 1);
 });
 
-test("negated-only query on all mailboxes yields to the UI", async () => {
+// A folder "Search Bulk" of 5000 headers without bodies.
+async function withBulkFolder(fn) {
   await withTempFolder("Search Bulk", async folder => {
     const db = folder.msgDatabase;
     for (let key = 1; key <= 5000; key++) {
@@ -404,6 +409,12 @@ test("negated-only query on all mailboxes yields to the UI", async () => {
       hdr.date = Date.UTC(2026, 0, 1) * 1000;
       db.addNewHdrToDB(hdr, true);
     }
+    await fn(folder);
+  });
+}
+
+test("negated-only query on all mailboxes yields to the UI", async () => {
+  await withBulkFolder(async () => {
     // Only the folder's universe, no search session that would yield on its own.
     let fired = false;
     setTimeout(() => (fired = true), 0);
@@ -1161,16 +1172,21 @@ test("clicking the twisty of the selected folder keeps the search", async () => 
   assert(chipRow(), "the chips are gone");
 });
 
-test("shown and added hits are drawn as cards", async () => {
-  // Each row of the list shows the mail of its index, not one of the folder shown before.
-  const drawn = () => {
-    for (let i = 0; i < win.gDBView.rowCount; i++) {
-      if (!win.threadTree.getRowAtIndex(i)?.dataset.qolId?.startsWith(`${keyOf(win.gDBView.getMsgHdrAt(i))}#`)) {
-        return false;
-      }
+// Each rendered row of the list shows the mail of its index, not one drawn there before.
+function drawn() {
+  if (!win.gDBView?.rowCount || !win.threadTree.getRowAtIndex(0)) {
+    return false;
+  }
+  for (let i = 0; i < win.gDBView.rowCount; i++) {
+    const row = win.threadTree.getRowAtIndex(i);
+    if (row && !win.gViewWrapper.isGroupedByHeaderAtIndex(i) && !row.dataset.qolId?.startsWith(`${keyOf(win.gDBView.getMsgHdrAt(i))}#`)) {
+      return false;
     }
-    return true;
-  };
+  }
+  return true;
+}
+
+test("shown and added hits are drawn as cards", async () => {
   results.show(win, [hdrs(inbox)[3], hdrs(inbox)[4]]);
   await waitFor(drawn);
   // Another hit set, as for a switch of the scope: the list keeps its size.
@@ -1179,6 +1195,134 @@ test("shown and added hits are drawn as cards", async () => {
   results.add(win, [hdrs(archive)[0]]);
   assertEqual(win.gDBView.rowCount, 3);
   await waitFor(drawn);
+});
+
+// Changes to the list and to folders while results show
+
+test("the list stays responsive while it draws 5000 hits", async () => {
+  await withBulkFolder(async () => {
+    await searchFor("-from:nobody");
+    let rowsWhenFired = null;
+    setTimeout(() => (rowsWhenFired = win.gDBView.rowCount), 0);
+    scopeChip("all").click();
+    const total = await waitFor(() => win.gDBView.rowCount >= 5015 && !win.gViewWrapper.searching && win.gDBView.rowCount, 30000);
+    assert(rowsWhenFired !== null && rowsWhenFired < total, `the timer ran with ${rowsWhenFired} of ${total} rows shown`);
+    assertEqual(headerText(), `${label("results")} · ${total}`);
+    await waitFor(drawn);
+  });
+});
+
+// The mails of the list's rows without the group headers, all groups open.
+function messageKeys() {
+  if (win.gViewWrapper.showGroupedBySort) {
+    win.gDBView.doCommand(Ci.nsMsgViewCommandType.expandAll);
+  }
+  const keys = [];
+  for (let i = 0; i < win.gDBView.rowCount; i++) {
+    if (!win.gViewWrapper.isGroupedByHeaderAtIndex(i)) {
+      keys.push(keyOf(win.gDBView.getMsgHdrAt(i)));
+    }
+  }
+  return keys.sort();
+}
+
+// Waits until the list holds exactly `keys` and stays that way.
+async function settlesOn(keys, ms = 5000) {
+  const wanted = JSON.stringify([...keys].sort());
+  await waitFor(() => JSON.stringify(messageKeys()) === wanted, ms);
+  await sleep(300);
+  assertEqual(messageKeys(), [...keys].sort());
+  await waitFor(drawn);
+}
+
+// Every row opens the mail it shows: its URI leads to a mail of its own folder with the
+// row's Message-ID.
+function rowsOpenTheirMail() {
+  const messenger = Cc["@mozilla.org/messenger;1"].createInstance(Ci.nsIMessenger);
+  for (let i = 0; i < win.gDBView.rowCount; i++) {
+    if (win.gViewWrapper.isGroupedByHeaderAtIndex(i)) {
+      continue;
+    }
+    const hdr = win.gDBView.getMsgHdrAt(i);
+    const opened = messenger.msgHdrFromURI(win.gDBView.getURIForViewIndex(i));
+    assert(opened && opened.messageId === hdr.messageId, `row ${i} opens ${opened?.messageId} instead of ${hdr.messageId}`);
+    assert(hdr.folder.parent, `row ${i} shows a mail of a folder that is gone`);
+    assertEqual(hdr.folder.msgDatabase.getMsgHdrForMessageID(hdr.messageId)?.messageKey, hdr.messageKey);
+  }
+}
+
+test("quick filter toggled while results show", async () => {
+  // A starred mail in the hits' folder that is not a hit.
+  const other = seededHdr(8);
+  inbox.markMessagesFlagged([other], true);
+  const starred = () => win.document.getElementById("qfb-starred");
+  try {
+    await searchFor("from:alice OR from:erin");
+    assertEqual(shownKeys(), seededSet(1, 5, 7));
+    win.quickFilterBar._showFilterBar(true);
+    starred().click();
+    await settlesOn(seededSet(7));
+    assert(results.isActive(win), "the search ended");
+    // The chips keep counting the search's hits.
+    assert(scopeChip("folder").textContent.endsWith(" · 3"), `the chip reads ${scopeChip("folder").textContent}`);
+    // Another scope with the filter still on.
+    scopeChip("all").click();
+    await settlesOn(seededSet(7));
+    starred().click();
+    await settlesOn(seededSet(1, 5, 7, 10, 13));
+    rowsOpenTheirMail();
+  } finally {
+    win.quickFilterBar._showFilterBar(false);
+    inbox.markMessagesFlagged([other], false);
+  }
+});
+
+test("grouped by sort switched on while results show", async () => {
+  await searchFor("from:alice OR from:carol");
+  const numbers = [1, 3, 5];
+  const hits = seededSet(...numbers);
+  assertEqual(shownKeys(), hits);
+  try {
+    win.sortController.groupBySort();
+    assert(win.gViewWrapper.showGroupedBySort, "not grouped");
+    await settlesOn(hits);
+    rowsOpenTheirMail();
+    win.sortController.sortUnthreaded();
+    assert(!win.gViewWrapper.showGroupedBySort, "still grouped");
+    await settlesOn(hits);
+    // View > Messages > Unread.
+    win.SwitchView("cmd_viewUnreadMsgs");
+    await settlesOn(seededSet(...numbers.filter(n => !seededHdr(n).isRead)));
+    win.SwitchView("cmd_viewAllMsgs");
+    await settlesOn(hits);
+    assert(results.isActive(win), "the search ended");
+  } finally {
+    if (win.gViewWrapper?.showGroupedBySort) {
+      win.sortController.sortUnthreaded();
+    }
+    if (win.gViewWrapper?.showUnreadOnly) {
+      win.SwitchView("cmd_viewAllMsgs");
+    }
+  }
+});
+
+test("hits added to sorted results are drawn at their rows", async () => {
+  results.show(win, [hdrs(inbox)[3], hdrs(inbox)[4]]);
+  win.sortController.sortThreadPane("subjectCol");
+  assertEqual(win.gViewWrapper.primarySortType, Ci.nsMsgViewSortType.bySubject);
+  await waitFor(drawn);
+  win.threadTree.selectedIndex = 1;
+  const selected = keyOf(win.gDBView.hdrForFirstSelectedMessage);
+  const more = [...hdrs(inbox).slice(5), ...hdrs(archive)];
+  results.add(win, more);
+  await settlesOn([hdrs(inbox)[3], hdrs(inbox)[4], ...more].map(keyOf));
+  const subjects = [];
+  for (let i = 0; i < win.gDBView.rowCount; i++) {
+    subjects.push(win.gDBView.getMsgHdrAt(i).mime2DecodedSubject);
+  }
+  assertEqual(subjects, [...subjects].sort((a, b) => a.localeCompare(b)));
+  assertEqual(win.threadTree.selectedIndices.map(i => keyOf(win.gDBView.getMsgHdrAt(i))), [selected]);
+  rowsOpenTheirMail();
 });
 
 // Message list integration (qol experiment)

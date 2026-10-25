@@ -303,8 +303,10 @@ var qolSearchEngine = (() => {
                 try {
                   if (!cancelled) {
                     for (const item of collection.items) {
+                      // The folder first: reading the header opens its folder's database.
+                      if (!scopeUris.has(item.folderURI)) continue;
                       const msgHdr = item.folderMessage;
-                      if (msgHdr && scopeUris.has(msgHdr.folder.URI)) addHit(key, msgHdr);
+                      if (msgHdr) addHit(key, msgHdr);
                     }
                   }
                 } catch (e) {

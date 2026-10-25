@@ -4,19 +4,74 @@
 "use strict";
 
 var qolSearchResults = (() => {
-  // about3Pane window -> { wrapper, saved }
+  // about3Pane window -> { wrapper, saved, hdrs, ids, token, pending, timer }
   const states = new WeakMap();
   // nsMsgViewIndex_None, a const of the 3-pane and so not a property of its window.
   const NO_INDEX = 0xffffffff;
+  // Hits given to the view in one go; between two chunks the window gets to run.
+  const FEED_CHUNK = 500;
+  // A search term that matches the hits shown, and so turns the quick filter and the
+  // mail views into filters of the hits instead of searches of their whole folders.
+  const HIT_TERM_ID = "officebird#searchHit";
+  let lastToken = 0;
+
+  function idOf(hdr) {
+    return hdr.folder.URI + "#" + hdr.messageKey;
+  }
+
+  // Token -> ids of the hits shown under it. Thunderbird keeps custom terms until it
+  // quits, so a term registered before (by an earlier load of the add-on) is used again.
+  function hitSets(win) {
+    const { Ci } = win;
+    const { MailServices } = win.ChromeUtils.importESModule("resource:///modules/MailServices.sys.mjs");
+    const registered = MailServices.filters.getCustomTerm(HIT_TERM_ID);
+    if (registered) {
+      return (registered.wrappedJSObject ?? registered).hits;
+    }
+    const offline = [Ci.nsMsgSearchScope.offlineMail, Ci.nsMsgSearchScope.onlineManual, Ci.nsMsgSearchScope.localNews];
+    const term = {
+      id: HIT_TERM_ID,
+      name: "Officebird search hit",
+      needsBody: false,
+      hits: new Map(),
+      // Not offered in the filter and search dialogs.
+      getEnabled: () => false,
+      // Never sent to a server: hits of an IMAP folder are matched on its local copy.
+      getAvailable: scope => offline.includes(scope),
+      getAvailableOperators(scope, length) {
+        if (length) {
+          length.value = 1;
+        }
+        return [Ci.nsMsgSearchOp.Is];
+      },
+      match(msgHdr, token) {
+        return Boolean(term.hits.get(token)?.has(idOf(msgHdr)));
+      },
+    };
+    term.wrappedJSObject = term;
+    MailServices.filters.addCustomTerm(term);
+    return term.hits;
+  }
 
   function activeState(win) {
     const state = states.get(win);
     if (state && win.gViewWrapper === state.wrapper && state.wrapper.isSearch) {
       return state;
     }
-    // The 3-pane replaced the view itself, for example when a folder was selected.
-    states.delete(win);
+    // The 3-pane replaced or closed the view itself, for example when a folder was
+    // selected or the folder shown before was deleted.
+    if (state) {
+      forget(win, state);
+    }
     return null;
+  }
+
+  function forget(win, state) {
+    states.delete(win);
+    win.clearTimeout(state.timer);
+    state.timer = null;
+    state.pending = [];
+    hitSets(win).delete(state.token);
   }
 
   function saveFolderView(win) {
@@ -71,31 +126,136 @@ var qolSearchResults = (() => {
     return [...folders.values()];
   }
 
-  function feed(win, hdrs) {
-    const view = win.gDBView.QueryInterface(win.Ci.nsIMsgSearchNotify);
-    const before = win.gDBView.rowCount;
-    for (const hdr of hdrs) {
+  // Gives `hdrs` to the view and has the list draw them.
+  function insert(win, state, dbView, hdrs) {
+    const { threadTree, Ci } = win;
+    const { wrapper } = state;
+    // The search view has no unread-only mode of its own.
+    const shown = wrapper.showUnreadOnly ? hdrs.filter(hdr => !hdr.isRead) : hdrs;
+    const view = dbView.QueryInterface(Ci.nsIMsgSearchNotify);
+    const before = dbView.rowCount;
+    // Sorted or grouped, the hits land between the rows shown so far.
+    const inPlace = wrapper.primarySortType !== Ci.nsMsgViewSortType.byNone || wrapper.showGroupedBySort;
+    const selected = inPlace ? threadTree.selectedIndices.filter(i => !wrapper.isGroupedByHeaderAtIndex(i)).map(i => dbView.getMsgHdrAt(i)) : [];
+    for (const hdr of shown) {
       view.onSearchHit(hdr, hdr.folder);
     }
-    view.onSearchDone(win.Cr.NS_OK);
     // The search view tells only a XUL tree about its hits, so the list draws no rows
-    // for them by itself. Unsorted, the hits come after the rows shown so far.
-    const added = win.gDBView.rowCount - before;
-    if (added) {
-      win.threadTree.rowCountChanged(before, added);
+    // for them by itself.
+    const added = dbView.rowCount - before;
+    if (!added) {
+      return;
     }
+    threadTree.rowCountChanged(before, added);
+    if (inPlace) {
+      threadTree.invalidate();
+      const indices = selected.map(hdr => dbView.findIndexOfMsgHdr(hdr, false)).filter(index => index !== NO_INDEX);
+      if (indices.length || selected.length) {
+        threadTree.setSelectedIndices(indices, true);
+      }
+    }
+  }
+
+  // Feeds the waiting hits chunk by chunk; the list counts as loading until all are in.
+  function pump(win, state) {
+    state.timer = null;
+    const dbView = state.wrapper.dbView;
+    if (states.get(win) !== state || !dbView) {
+      return;
+    }
+    insert(win, state, dbView, state.pending.splice(0, FEED_CHUNK));
+    if (state.pending.length) {
+      state.wrapper.searching = true;
+      state.timer = win.setTimeout(() => pump(win, state), 0);
+      return;
+    }
+    dbView.QueryInterface(win.Ci.nsIMsgSearchNotify).onSearchDone(win.Cr.NS_OK);
+    // Like the end of a search session: the 3-pane restores selection and scroll.
+    state.wrapper.searching = false;
+  }
+
+  function enqueue(win, state, hdrs) {
+    state.pending = state.pending.concat(hdrs);
+    if (!state.timer) {
+      pump(win, state);
+    }
+  }
+
+  // Called for every view the wrapper creates: when the hits change, and when Thunderbird
+  // re-creates the view for a sort, grouping or filter change.
+  function fill(win, state, dbView) {
+    win.clearTimeout(state.timer);
+    state.timer = null;
+    state.pending = [];
+    dbView.QueryInterface(win.Ci.nsIMsgSearchNotify).onNewSearch();
+    enqueue(win, state, state.hdrs);
+  }
+
+  function hitTerm(win, session, token) {
+    const { Ci } = win;
+    const term = session.createTerm();
+    const value = term.value;
+    value.attrib = Ci.nsMsgSearchAttrib.Custom;
+    value.str = token;
+    term.attrib = Ci.nsMsgSearchAttrib.Custom;
+    term.customId = HIT_TERM_ID;
+    term.op = Ci.nsMsgSearchOp.Is;
+    term.value = value;
+    term.booleanAnd = true;
+    return term;
+  }
+
+  // The wrapper fills its views from the hits. With quick filter or mail view terms,
+  // Thunderbird's own search runs over the hits' folders, and the hit term keeps it to
+  // the hits.
+  function connect(win, state) {
+    const spec = state.wrapper.search;
+    const { associateView, dissociateView, updateSession } = spec;
+    spec.updateSession = function () {
+      // The slot of a saved search's terms, which a search view leaves empty: its terms
+      // come first and are checked for what a server can search.
+      this._virtualFolderTerms = [hitTerm(win, this.session, state.token)];
+      try {
+        updateSession.call(this);
+      } finally {
+        this._virtualFolderTerms = null;
+      }
+    };
+    spec.associateView = function (dbView) {
+      associateView.call(this, dbView);
+      if (!this.hasSearchTerms && states.get(win) === state) {
+        fill(win, state, dbView);
+      }
+    };
+    spec.dissociateView = function (dbView) {
+      win.clearTimeout(state.timer);
+      state.timer = null;
+      state.pending = [];
+      dissociateView.call(this, dbView);
+    };
+  }
+
+  function setHits(win, state, hdrs) {
+    state.hdrs = [...hdrs];
+    const ids = new Set(state.hdrs.map(idOf));
+    hitSets(win).set(state.token, ids);
   }
 
   // Shows the saved folder again in a list whose search view is closed.
   function showFolder(win, saved) {
+    // A folder deleted (or moved away) while the results showed: the folder pane's choice.
+    const { MailUtils } = win.ChromeUtils.importESModule("resource:///modules/MailUtils.sys.mjs");
+    const gone = Boolean(saved.folder) && !MailUtils.getExistingFolder(saved.folder.URI);
     // displayFolder does nothing for the folder selected in the folder pane, and only the
     // folder pane's select handler opens a view of it again.
-    if (!saved.folder || win.folderTree.selectedRow?.uri === saved.folder.URI) {
+    if (!saved.folder || gone || win.folderTree.selectedRow?.uri === saved.folder.URI) {
       win.folderPane._onSelect();
     } else {
       win.displayFolder(saved.folder);
     }
-    restoreFolderView(win, saved);
+    if (!gone) {
+      restoreFolderView(win, saved);
+    }
   }
 
   // Switches the tab's message list to a search view that shows exactly `hdrs`. When the
@@ -109,16 +269,18 @@ var qolSearchResults = (() => {
         win.gViewWrapper?.close();
         const wrapper = new win.DBViewWrapper(win.dbViewWrapperListener);
         win.gViewWrapper = wrapper;
-        state = { wrapper, saved };
+        state = { wrapper, saved, hdrs: [], token: `${Date.now()}-${++lastToken}`, pending: [], timer: null };
         states.set(win, state);
         wrapper.openSearchView();
+        connect(win, state);
       }
-      // Setting the folders re-creates the (empty) view.
+      setHits(win, state, hdrs);
+      // Re-creates the view, which fills itself with the hits.
       state.wrapper.searchFolders = folderList(hdrs);
-      win.gDBView.QueryInterface(win.Ci.nsIMsgSearchNotify).onNewSearch();
-      feed(win, hdrs);
     } catch (e) {
-      states.delete(win);
+      if (state) {
+        forget(win, state);
+      }
       try {
         win.gViewWrapper?.close();
       } catch (closeError) {
@@ -135,14 +297,20 @@ var qolSearchResults = (() => {
     if (!state) {
       return;
     }
-    // The live list: the setter would re-create the view and drop the hits shown so far.
-    const folders = state.wrapper.searchFolders;
-    for (const folder of folderList(hdrs)) {
-      if (!folders.some(f => f.URI === folder.URI)) {
-        folders.push(folder);
-      }
+    setHits(win, state, [...state.hdrs, ...hdrs]);
+    const { wrapper } = state;
+    const folders = wrapper.searchFolders;
+    const fresh = folderList(hdrs).filter(folder => !folders.some(f => f.URI === folder.URI));
+    if (wrapper.search.hasSearchTerms) {
+      // Re-creates the view: Thunderbird's search of the hits' folders runs again.
+      wrapper.searchFolders = [...folders, ...fresh];
+      return;
     }
-    feed(win, hdrs);
+    // The live list: the setter would re-create the view.
+    folders.push(...fresh);
+    if (wrapper.dbView) {
+      enqueue(win, state, hdrs);
+    }
   }
 
   // Closes the search view and shows the folder that was displayed before, as it was.
@@ -151,7 +319,7 @@ var qolSearchResults = (() => {
     if (!state) {
       return;
     }
-    states.delete(win);
+    forget(win, state);
     const { saved, wrapper } = state;
     // Clears gDBView, so the folder pane does not save the results' selection as the folder's.
     wrapper.close();
