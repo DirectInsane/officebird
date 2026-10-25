@@ -65,7 +65,7 @@ export function buildStylesheet(config) {
 :root #threadTree tr.card-layout .qol-delete {
   opacity: 0;
 }
-:root #threadTree tr.card-layout:is(:hover, .selected) .qol-delete {
+:root #threadTree tr.card-layout:hover .qol-delete {
   opacity: 0.55;
 }
 :root #threadTree tr.card-layout .qol-delete:hover {
