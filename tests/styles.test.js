@@ -257,3 +257,13 @@ test("the card delete button shows on hover and stays hidden for mail marked del
   assert.match(css, /:root #threadTree tr\.card-layout:is\(:hover, \.selected\) \.qol-delete\s*\{[^}]*opacity/);
   assert.match(css, /\[data-properties~="imapdeleted"\] \.qol-delete\s*\{[^}]*display:\s*none/);
 });
+
+test("search results: the card folder label is small text in a share of the text color", () => {
+  const css = buildStylesheet(DEFAULT_CFG);
+  const rule = css.match(/\.qol-folder-label\s*\{[^}]*\}/)?.[0];
+  assert.ok(rule, "no .qol-folder-label rule");
+  assert.match(rule, /font-size:\s*0\.\d+em/);
+  assert.match(rule, /color:\s*var\(--qol-[a-z-]+\)/);
+  assert.doesNotMatch(rule, /#[0-9a-f]{3,6}\b/i);
+  assert.match(css, /--qol-folder-label-color:\s*color-mix\(in srgb, currentColor \d+%, transparent\)/);
+});

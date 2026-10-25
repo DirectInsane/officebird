@@ -3,6 +3,7 @@
 const { MailServices } = ChromeUtils.importESModule("resource:///modules/MailServices.sys.mjs");
 const { setTimeout, clearTimeout } = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");
 const { ExtensionStorageIDB } = ChromeUtils.importESModule("resource://gre/modules/ExtensionStorageIDB.sys.mjs");
+const { NetUtil } = ChromeUtils.importESModule("resource://gre/modules/NetUtil.sys.mjs");
 
 // Helpers
 
@@ -1157,6 +1158,115 @@ test("shown and added hits are drawn as cards", async () => {
   results.add(win, [hdrs(archive)[0]]);
   assertEqual(win.gDBView.rowCount, 3);
   await waitFor(drawn);
+});
+
+// Message list integration (qol experiment)
+
+let qolLib = null;
+// The qol experiment's top-level functions, from the installed add-on's source.
+function qol() {
+  if (!qolLib) {
+    const ext = WebExtensionPolicy.getByID(ADDON_ID).extension;
+    const channel = NetUtil.newChannel({ uri: ext.rootURI.resolve("experiments/qol/implementation.js"), loadUsingSystemPrincipal: true });
+    const stream = channel.open();
+    let source;
+    try {
+      source = NetUtil.readInputStreamToString(stream, stream.available(), { charset: "UTF-8" });
+    } finally {
+      stream.close();
+    }
+    qolLib = Cu.Sandbox(Services.scriptSecurityManager.getSystemPrincipal(), { sandboxName: "qol test" });
+    Object.assign(qolLib, { ChromeUtils, Cc, Ci, Cu, Cr, Services });
+    Cu.evalInSandbox(source, qolLib, "latest", "implementation.js", 1);
+  }
+  return qolLib;
+}
+
+function folderLabels() {
+  const labels = [];
+  for (let i = 0; i < win.gDBView.rowCount; i++) {
+    const card = win.threadTree.getRowAtIndex(i);
+    assert(card, `row ${i} is not rendered`);
+    labels.push(card.querySelector(".qol-folder-label")?.textContent ?? null);
+  }
+  return labels;
+}
+
+test("search view is detected, virtual folder is not", async () => {
+  const { VirtualFolderHelper } = ChromeUtils.importESModule("resource:///modules/VirtualFolderWrapper.sys.mjs");
+  assertEqual(qol().isSearchView(win), false);
+  results.show(win, hdrs(inbox).slice(0, 2));
+  assertEqual(qol().isSearchView(win), true);
+  results.end(win);
+  const saved = VirtualFolderHelper.createNewVirtualFolder("Search Saved View", testRoot, [inbox, archive], "ALL", false).virtualFolder;
+  try {
+    await openFolder(saved);
+    assertEqual(qol().isSearchView(win), false);
+  } finally {
+    await openFolder(inbox);
+    saved.deleteSelf(null);
+    MailServices.accounts.localFoldersServer.rootFolder.getFolderWithFlags(Ci.nsMsgFolderFlags.Trash)?.getChildNamed("Search Saved View")?.deleteSelf(null);
+  }
+  assertEqual(qol().isSearchView(win), false);
+});
+
+test("cards in all-mailbox results show the folder", async () => {
+  // A folder in the second account with the name of Search Test's Archive.
+  const secondRoot = secondInbox.server.rootFolder.QueryInterface(Ci.nsIMsgLocalMailFolder);
+  const twin = secondRoot.createLocalSubfolder(archive.name).QueryInterface(Ci.nsIMsgLocalMailFolder);
+  try {
+    twin.addMessage(
+      ["From: Ivan Probe <ivan@example.org>", "Subject: Zweites Archiv", "Date: Mon, 19 Oct 2026 12:00:00 +0000", "Message-ID: <search-twin@example.org>", "", "Text.", ""].join("\r\n")
+    );
+    results.show(win, [hdrs(inbox)[0], hdrs(archive)[0], hdrs(twin)[0]]);
+    await waitFor(() => folderLabels().every(Boolean));
+    // Search Test is a folder of Local Folders, so that is the account of its Archive.
+    const name = archive.localizedName;
+    assertEqual(folderLabels(), [inbox.localizedName, `${name} · ${archive.server.prettyName}`, `${name} · Search Second`]);
+  } finally {
+    results.end(win);
+    twin.deleteSelf(null);
+    secondRoot.getFolderWithFlags(Ci.nsMsgFolderFlags.Trash)?.getChildNamed(archive.name)?.deleteSelf(null);
+  }
+});
+
+test("single-folder results have no folder label", async () => {
+  results.show(win, [hdrs(inbox)[0], hdrs(secondInbox)[0]]);
+  await waitFor(() => folderLabels().every(Boolean));
+  results.show(win, hdrs(inbox).slice(0, 3));
+  await waitFor(() => win.gDBView.rowCount === 3);
+  await sleep(100);
+  assertEqual(folderLabels(), [null, null, null]);
+});
+
+test("hits from another folder added later label the cards already shown", async () => {
+  results.show(win, hdrs(inbox).slice(0, 2));
+  await waitFor(() => win.threadTree.getRowAtIndex(1)?.dataset.qolId);
+  assertEqual(folderLabels(), [null, null]);
+  results.add(win, [hdrs(archive)[0]]);
+  await waitFor(() => folderLabels().every(Boolean));
+  assertEqual(folderLabels(), [inbox.localizedName, inbox.localizedName, archive.localizedName]);
+});
+
+test("expanding groups in results does not write folder properties", async () => {
+  const info = () => inbox.msgDatabase.dBFolderInfo.getCharProperty("officebirdCollapsedGroups");
+  const before = info();
+  const hits = [...hdrs(inbox), ...hdrs(archive)];
+  results.show(win, hits);
+  win.gViewWrapper.sort(Ci.nsMsgViewSortType.byDate, Ci.nsMsgViewSortOrder.descending);
+  win.gViewWrapper.showGroupedBySort = true;
+  // Changing the view re-creates it empty; showing the hits again feeds them in.
+  results.show(win, hits);
+  assert(win.gViewWrapper.showGroupedBySort && win.gViewWrapper.isGroupedByHeaderAtIndex(0), "results are not grouped");
+  if (!win.gDBView.isContainerOpen(0)) {
+    win.threadTree.expandRowAtIndex(0);
+  }
+  win.threadTree.collapseRowAtIndex(0);
+  win.threadTree.expandRowAtIndex(0);
+  win.threadTree.collapseRowAtIndex(0);
+  results.end(win);
+  await waitFor(() => win.gFolder?.URI === inbox.URI && !win.gViewWrapper.isSearch);
+  assertEqual(info(), before);
 });
 
 // Runner

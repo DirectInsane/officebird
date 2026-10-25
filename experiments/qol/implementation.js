@@ -139,6 +139,13 @@ function loadAddonScript(extension, path) {
   }
 }
 
+// The view the search experiment shows its results in: a search view without a folder
+// of its own. Saved searches open as a multi-folder view of their virtual folder.
+function isSearchView(win) {
+  const wrapper = win.gViewWrapper;
+  return Boolean(wrapper?.isSearch && !wrapper.displayedFolder);
+}
+
 // Message keys get reused (compacting a local folder, deleting and recreating one),
 // so the Message-ID is part of the cache key.
 function cardId(hdr) {
@@ -185,6 +192,8 @@ class QolState {
     // Bumped by clearIcons(); results for older card batches are dropped.
     this.generation = 0;
     this.pending = new Map(); // id → message header
+    // Window → number of folders in its search results, for the folder labels.
+    this.searchFolderCounts = new WeakMap();
     this.pendingTimer = null;
     this.previewTries = new CappedMap(); // id → { count, at }
     this.previewQueue = new Map();
@@ -771,8 +780,9 @@ class QolState {
 
   groupFolder(win) {
     const wrapper = win.gViewWrapper;
-    // displayedFolder is also set for virtual folders such as the unified ones.
-    if (!this.config?.style?.expandGroups || !wrapper?.showGroupedBySort || !win.gDBView) {
+    // displayedFolder is also set for virtual folders such as the unified ones. Search
+    // results have no folder to keep their groups in.
+    if (!this.config?.style?.expandGroups || !wrapper?.showGroupedBySort || !win.gDBView || isSearchView(win)) {
       return null;
     }
     return wrapper.displayedFolder ?? null;
@@ -1028,6 +1038,7 @@ class QolState {
     if (!hdr || !this.config) {
       card.querySelector(".qol-avatar")?.remove();
       card.querySelector(".qol-preview")?.remove();
+      card.querySelector(".qol-folder-label")?.remove();
       card.classList.remove("qol-two-line");
       delete card.dataset.qolId;
       return;
@@ -1052,6 +1063,48 @@ class QolState {
       this.renderDate(card, hdr);
     } else {
       this.renderReadToggle(card, hdr);
+      this.renderFolderLabel(win, card, hdr);
+    }
+  }
+
+  renderFolderLabel(win, card, hdr) {
+    const text = this.folderLabel(win, hdr.folder);
+    let label = card.querySelector(".qol-folder-label");
+    const container = card.querySelector(".thread-card-subject-container");
+    if (!text || !container) {
+      label?.remove();
+      return;
+    }
+    if (!label) {
+      label = card.ownerDocument.createElement("span");
+      label.className = "qol-folder-label";
+      container.append(label);
+    }
+    label.textContent = text;
+  }
+
+  // Only search results from several folders name the folder; the account is added when
+  // another folder of the results has the same name.
+  folderLabel(win, folder) {
+    const folders = isSearchView(win) ? win.gViewWrapper.searchFolders : null;
+    if (folders) {
+      this.noteSearchFolders(win, folders.length);
+    }
+    if (!folders || folders.length < 2) {
+      return null;
+    }
+    const name = folder.localizedName;
+    const shared = folders.some(other => other.URI !== folder.URI && other.localizedName === name);
+    return shared ? `${name} · ${folder.server.prettyName}` : name;
+  }
+
+  // Hits added later can bring more folders, which changes the labels of the cards
+  // already shown; the list redraws only the new rows by itself.
+  noteSearchFolders(win, count) {
+    const last = this.searchFolderCounts.get(win);
+    this.searchFolderCounts.set(win, count);
+    if (last !== undefined && last !== count) {
+      win.setTimeout(() => win.threadTree?.invalidate(), 0);
     }
   }
 

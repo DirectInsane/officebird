@@ -76,6 +76,31 @@ export function buildStylesheet(config) {
   display: none;
 }`);
 
+  // Folder of a card in search results from several folders, right after the subject.
+  rules.push(`:root #threadTree {
+  --qol-folder-label-color: color-mix(in srgb, currentColor 55%, transparent);
+}
+.thread-card-subject-container:has(> .qol-folder-label) {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.thread-card-subject-container:has(> .qol-folder-label) > .subject {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.qol-folder-label {
+  flex: 0 1 auto;
+  min-width: 3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.88em;
+  font-weight: normal;
+  color: var(--qol-folder-label-color);
+}`);
+
   if (iconsEnabled) {
     // Thunderbird's card is a two-column grid (read status | content); the avatar adds a third.
     rules.push(`.card-container:has(> .qol-avatar) {
