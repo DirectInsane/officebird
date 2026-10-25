@@ -51,4 +51,6 @@ test("German texts", () => {
   assert.match(label("de", "glodaOff"), /^Der Volltextindex ist deaktiviert: /);
   assert.equal(label("de", "offline", { count: 1 }), "Server nicht erreichbar: nur lokal durchsuchte Ordner: 1");
   assert.equal(label("de", "closeNotice"), "Schließen");
+  assert.equal(label("de", "glodaRestart"), "Starte Thunderbird neu, um den Volltextindex aufzubauen.");
+  assert.equal(label("en", "glodaRestart"), "Restart Thunderbird to build the full-text index.");
 });

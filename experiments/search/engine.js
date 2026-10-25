@@ -453,7 +453,10 @@ var qolSearchEngine = (() => {
         } else {
           notices.push({ kind: "glodaOff" });
         }
-        if (gloda?.GlodaIndexer.indexing) {
+        // Gloda reads its pref at startup: turned on later, it runs only after a restart.
+        if (gloda && !gloda.GlodaIndexer.enabled) {
+          notices.push({ kind: "glodaRestart" });
+        } else if (gloda?.GlodaIndexer.indexing) {
           notices.push({ kind: "glodaIndexing", percent: indexedPercent(gloda, folders) });
         }
         if (gloda) {

@@ -347,8 +347,9 @@ var qolSearch = (() => {
         started: previous?.started ?? false,
         searching: true,
         notices: [],
-        // Notice kinds whose cause went away while the search ran.
-        droppedNotices: new Set(),
+        // Notice kind -> the notice shown instead (null: none), after its cause changed
+        // while the search ran.
+        replacedNotices: new Map(),
         hdr: null,
         run: null,
         folderLabel: this.folderLabel(pane, query),
@@ -476,17 +477,19 @@ var qolSearch = (() => {
         allCount: search.sets.all.size,
         active: search.scope,
         searching: search.searching,
-        notices: search.notices.filter(notice => !this.manager.dismissed.has(notice.kind) && !search.droppedNotices.has(notice.kind)),
+        notices: search.notices
+          .map(notice => (search.replacedNotices.has(notice.kind) ? search.replacedNotices.get(notice.kind) : notice))
+          .filter(notice => notice && !this.manager.dismissed.has(notice.kind)),
         criteria: this.tabs.get(search.tab).blocked ?? search.criteria,
         empty: !search.searching && !search.shown.size,
       });
     }
 
-    // After a notice was closed or its cause removed.
-    dropNotice(kind) {
+    // After a notice was closed or its cause changed; `replacement` is shown in its place.
+    replaceNotice(kind, replacement = null) {
       for (const { search } of this.tabs.values()) {
         if (search?.notices.some(notice => notice.kind === kind)) {
-          search.droppedNotices.add(kind);
+          search.replacedNotices.set(kind, replacement);
           this.render(search);
         }
       }
@@ -639,17 +642,25 @@ var qolSearch = (() => {
       log(`search unavailable: ${reason}`, error ?? "");
     }
 
-    // The background turns the index on through the Thunderbird settings allowlist.
+    // The background turns the index on through the Thunderbird settings allowlist. Gloda
+    // reads that pref at startup, so an index that is not running needs a restart.
     turnOnIndex() {
       for (const fire of this.indexListeners) {
         fire.async();
       }
-      this.eachController(controller => controller.dropNotice("glodaOff"));
+      let running = false;
+      try {
+        running = ChromeUtils.importESModule("resource:///modules/gloda/GlodaIndexer.sys.mjs").GlodaIndexer.enabled;
+      } catch (e) {
+        log("full-text indexer not available", e);
+      }
+      const replacement = running ? null : { kind: "glodaRestart" };
+      this.eachController(controller => controller.replaceNotice("glodaOff", replacement));
     }
 
     dismissNotice(kind) {
       this.dismissed.add(kind);
-      this.eachController(controller => controller.dropNotice(kind));
+      this.eachController(controller => controller.replaceNotice(kind));
     }
 
     eachController(fn) {

@@ -905,6 +905,12 @@ test("the shortcut listener leaves other kinds of tabs alone", async () => {
   }
 });
 
+// searchFor() waits for a finished row; ending first keeps it from seeing the last one.
+async function endSearch() {
+  key(fieldInput(), "Escape");
+  await waitFor(() => !chipRow() && !results.isActive(win));
+}
+
 // The toolbar rebuilds its items when the index is turned on or off.
 async function setGloda(on) {
   Services.prefs.setBoolPref(GLODA_PREF, on);
@@ -922,6 +928,7 @@ test("glodaOff notice and Turn on", async () => {
     await waitFor(() => Services.prefs.getBoolPref(GLODA_PREF, false), 5000);
     await waitFor(() => !notice("glodaOff"));
     await waitFor(() => shown(field()));
+    await endSearch();
     await searchFor("Krankenversicherungsbeitrag");
     assert(!notice("glodaOff"), "the notice came back with the index on");
 
@@ -930,8 +937,62 @@ test("glodaOff notice and Turn on", async () => {
     await searchFor("Krankenversicherungsbeitrag");
     (await waitFor(() => notice("glodaOff"))).querySelector(".qol-notice-close").click();
     await waitFor(() => !notice("glodaOff"));
+    await endSearch();
     await searchFor("Rechnungsnummer");
     assert(!notice("glodaOff"), "a closed notice came back");
+  } finally {
+    await setGloda(was);
+    mainWindow.qolSearch.controller.manager.dismissed.clear();
+  }
+});
+
+// Gloda reads its pref at startup: with the pref turned on later, it is not running until
+// a restart. The getter alone is replaced, so indexing itself keeps running.
+async function withGlodaStopped(fn) {
+  const { GlodaIndexer } = ChromeUtils.importESModule("resource:///modules/gloda/GlodaIndexer.sys.mjs");
+  const descriptor = Object.getOwnPropertyDescriptor(GlodaIndexer, "enabled");
+  Object.defineProperty(GlodaIndexer, "enabled", { configurable: true, get: () => false });
+  try {
+    await fn();
+  } finally {
+    Object.defineProperty(GlodaIndexer, "enabled", descriptor);
+  }
+}
+
+test("Turn on asks for a restart when the index is not running", async () => {
+  const was = Services.prefs.getBoolPref(GLODA_PREF, true);
+  mainWindow.qolSearch.controller.manager.dismissed.clear();
+  try {
+    await withGlodaStopped(async () => {
+      await setGloda(false);
+      await searchFor("Krankenversicherungsbeitrag");
+      (await waitFor(() => notice("glodaOff"))).querySelector(".qol-notice-action").click();
+      // Right away, before the pref has gone through the background.
+      assert(notice("glodaRestart"), "no restart notice after Turn on");
+      assert(!notice("glodaOff"), "the Turn on notice is still shown");
+      assertEqual(notice("glodaRestart").textContent.startsWith(label("glodaRestart")), true);
+      await waitFor(() => Services.prefs.getBoolPref(GLODA_PREF, false), 5000);
+      await waitFor(() => shown(field()));
+
+      // The next search with the pref on and the index not running.
+      await endSearch();
+      await searchFor("Krankenversicherungsbeitrag");
+      assert(notice("glodaRestart"), "no restart notice for a new search");
+      assert(!notice("glodaOff"), "Turn on is offered with the pref on");
+      assert(shownKeys().includes(seeded(1)), `got ${shownKeys()}`);
+      await endSearch();
+      await searchFor("from:alice");
+      assert(!notice("glodaRestart"), "restart notice without body terms");
+
+      // It closes like the others.
+      await endSearch();
+      await searchFor("Krankenversicherungsbeitrag");
+      notice("glodaRestart").querySelector(".qol-notice-close").click();
+      await waitFor(() => !notice("glodaRestart"));
+      await endSearch();
+      await searchFor("Rechnungsnummer");
+      assert(!notice("glodaRestart"), "a closed restart notice came back");
+    });
   } finally {
     await setGloda(was);
     mainWindow.qolSearch.controller.manager.dismissed.clear();
