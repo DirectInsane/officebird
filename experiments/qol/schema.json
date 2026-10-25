@@ -87,7 +87,7 @@
         "name": "getThunderbirdSettings",
         "type": "function",
         "async": true,
-        "description": "Thunderbird's own settings shown on the options page: listView (\"cards\" or \"table\"), markReadOnView and unifiedFolders.",
+        "description": "Thunderbird's own settings shown on the options page: listView (\"cards\" or \"table\"), markReadOnView, unifiedFolders and glodaIndex.",
         "parameters": []
       },
       {
@@ -102,7 +102,8 @@
             "enum": [
               "listView",
               "markReadOnView",
-              "unifiedFolders"
+              "unifiedFolders",
+              "glodaIndex"
             ]
           },
           {

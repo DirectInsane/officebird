@@ -32,6 +32,7 @@ const TABLE_PREVIEW_GAP_PX = 4;
 const DATE_REFRESH_MS = 60000;
 const LIST_VIEW_PREF = "mail.threadpane.listview";
 const MARK_READ_PREF = "mailnews.mark_message_read.auto";
+const GLODA_INDEX_PREF = "mailnews.database.global.indexer.enabled";
 const MESSAGE_WINDOW_URL = "chrome://messenger/content/messageWindow.xhtml";
 // Defaults Thunderbird uses for folders it hasn't stored a view for yet.
 const DEFAULT_VIEW_FLAGS_PREF = "mailnews.default_view_flags";
@@ -843,6 +844,8 @@ class QolState {
       // Settings > Reading & Display > Automatically mark messages as read.
       markReadOnView: Services.prefs.getBoolPref(MARK_READ_PREF, true),
       unifiedFolders: this.folderModes()[0] === "smart",
+      // Settings > General > Global search and indexer.
+      glodaIndex: Services.prefs.getBoolPref(GLODA_INDEX_PREF, true),
     };
   }
 
@@ -853,6 +856,8 @@ class QolState {
       Services.prefs.setBoolPref(MARK_READ_PREF, Boolean(value));
     } else if (name === "unifiedFolders") {
       this.setUnifiedFolders(Boolean(value));
+    } else if (name === "glodaIndex") {
+      Services.prefs.setBoolPref(GLODA_INDEX_PREF, Boolean(value));
     }
   }
 

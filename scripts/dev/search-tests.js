@@ -534,7 +534,7 @@ async function withRun(wrap, fn) {
 }
 
 async function openPanel() {
-  const panel = doc.getElementById("qol-search-panel");
+  const panel = mainWindow.qolSearch.controller.panel.panel;
   field().querySelector(".qol-search-filter").click();
   await waitFor(() => panel.state === "open", 5000);
   return panel;
@@ -688,6 +688,7 @@ test("Esc restores the folder", async () => {
   await waitFor(() => win.gFolder?.URI === inbox.URI && win.gDBView && !win.gViewWrapper.isSearch);
   assertEqual(win.gDBView.rowCount, inbox.getTotalMessages(false));
   assertEqual(headerText(), folderHeader);
+  assert(!win.document.getElementById("threadPaneFolderCount").hidden, "the folder's message count is hidden");
   assert(!chipRow() || chipRow().hidden, "chips still shown");
 });
 
@@ -707,6 +708,7 @@ test("selecting another folder ends the search", async () => {
   await waitFor(() => win.gFolder?.URI === archive.URI && win.gDBView && !win.gViewWrapper.isSearch);
   await waitFor(() => !chipRow() || chipRow().hidden);
   assertEqual(headerText(), archive.abbreviatedName);
+  assert(!win.document.getElementById("threadPaneFolderCount").hidden, "the folder's message count is hidden");
   assertEqual(win.gDBView.rowCount, archive.getTotalMessages(false));
 });
 
@@ -761,6 +763,321 @@ test("a hook failure disables search only", async () => {
   assertEqual(JSON.parse(JSON.stringify(await bg.messenger.qolSearch.getFeatures())), { search: true });
 });
 
+// Tabs, notices, tip and empty state
+
+const GLODA_PREF = "mailnews.database.global.indexer.enabled";
+const TIP_PREF = "extensions.officebird.search.tipCount";
+
+function rowOf(pane) {
+  return pane.document.getElementById("qol-search-results");
+}
+
+function keysOf(pane) {
+  const keys = [];
+  for (let i = 0; i < pane.gDBView.rowCount; i++) {
+    keys.push(keyOf(pane.gDBView.getMsgHdrAt(i)));
+  }
+  return keys.sort();
+}
+
+function notice(kind) {
+  return chipRow()?.querySelector(`.qol-notice[data-kind="${kind}"]`);
+}
+
+async function openMailTab(folder) {
+  const tabmail = mainWindow.gTabmail;
+  const tab = tabmail.openTab("mail3PaneTab", { folderURI: folder.URI, background: false });
+  await waitFor(() => {
+    const pane = tab.chromeBrowser?.contentWindow;
+    return pane?.gFolder?.URI === folder.URI && pane.gDBView && pane.dbViewWrapperListener?.allMessagesLoaded;
+  }, 10000);
+  return tab;
+}
+
+// Holds every progress report of the search runs back until `release` is called.
+function heldRuns() {
+  let release;
+  const gate = new Promise(resolve => (release = resolve));
+  const wrap = real => (w, q, opts, onProgress) => {
+    const run = real(w, q, opts, state => gate.then(() => onProgress(state)));
+    return { cancel: run.cancel, done: run.done.then(() => gate).then(() => sleep(50)) };
+  };
+  return { wrap, release };
+}
+
+// Review Focus 5.
+test("hits stay in their tab", async () => {
+  const tabmail = mainWindow.gTabmail;
+  const held = heldRuns();
+  let tabB = null;
+  try {
+    await withRun(held.wrap, async () => {
+      setText(fieldInput(), "Krankenversicherungsbeitrag");
+      key(fieldInput(), "Enter");
+      tabB = await openMailTab(archive);
+      const paneB = tabB.chromeBrowser.contentWindow;
+      assertEqual(fieldInput().value, "");
+      held.release();
+      await waitFor(() => results.isActive(win) && !rowOf(win).querySelector(".qol-searching:not([hidden])"), 15000);
+      assert(!paneB.gViewWrapper.isSearch, "tab B shows search results");
+      assertEqual(paneB.gDBView.rowCount, archive.getTotalMessages(false));
+      assert(!rowOf(paneB), "tab B has result chips");
+      tabmail.switchToTab(0);
+      assertEqual(fieldInput().value, "Krankenversicherungsbeitrag");
+      assert(shownKeys().includes(seeded(1)), `tab A shows ${shownKeys()}`);
+      tabmail.switchToTab(tabB);
+      assertEqual(fieldInput().value, "");
+    });
+  } finally {
+    if (tabB) {
+      tabmail.closeTab(tabB);
+    }
+    tabmail.switchToTab(0);
+  }
+});
+
+test("each tab keeps its own search", async () => {
+  const tabmail = mainWindow.gTabmail;
+  const tabB = await openMailTab(archive);
+  try {
+    const paneB = tabB.chromeBrowser.contentWindow;
+    setText(fieldInput(), "from:bob");
+    key(fieldInput(), "Enter");
+    await waitFor(() => results.isActive(paneB) && !rowOf(paneB).querySelector(".qol-searching:not([hidden])"), 10000);
+    tabmail.switchToTab(0);
+    assertEqual(fieldInput().value, "");
+    await searchFor("from:alice");
+    tabmail.switchToTab(tabB);
+    assertEqual(fieldInput().value, "from:bob");
+    assertEqual(keysOf(paneB), seededSet(11));
+    tabmail.switchToTab(0);
+    assertEqual(fieldInput().value, "from:alice");
+    assertEqual(shownKeys(), seededSet(1, 5));
+    // Closing a tab forgets its search and its folder pane.
+    const controller = mainWindow.qolSearch.controller;
+    tabmail.closeTab(tabB);
+    assert(![...controller.panes.keys()].includes(paneB), "the closed tab's pane is still watched");
+    assert(![...controller.tabs.keys()].includes(tabB), "the closed tab's search is still kept");
+  } finally {
+    if (tabmail.tabInfo.includes(tabB)) {
+      tabmail.closeTab(tabB);
+    }
+    tabmail.switchToTab(0);
+  }
+});
+
+test("a search in another kind of tab shows results in the most recent mail tab", async () => {
+  const tabmail = mainWindow.gTabmail;
+  const tabB = await openMailTab(archive);
+  let content = null;
+  try {
+    const paneB = tabB.chromeBrowser.contentWindow;
+    content = tabmail.openTab("contentTab", { url: "about:blank", background: false });
+    await waitFor(() => tabmail.currentTabInfo === content);
+    assertEqual(fieldInput().value, "");
+    setText(fieldInput(), "from:bob");
+    key(fieldInput(), "Enter");
+    await waitFor(() => tabmail.currentTabInfo === tabB);
+    await waitFor(() => results.isActive(paneB) && !rowOf(paneB).querySelector(".qol-searching:not([hidden])"), 10000);
+    assertEqual(fieldInput().value, "from:bob");
+    assert(!results.isActive(win), "the first mail tab shows results");
+  } finally {
+    if (content) {
+      tabmail.closeTab(content);
+    }
+    tabmail.closeTab(tabB);
+    tabmail.switchToTab(0);
+  }
+});
+
+test("the shortcut listener leaves other kinds of tabs alone", async () => {
+  const tabmail = mainWindow.gTabmail;
+  const content = tabmail.openTab("contentTab", { url: "about:blank", background: false });
+  try {
+    await waitFor(() => tabmail.currentTabInfo === content);
+    const mac = Services.appinfo.OS === "Darwin";
+    const event = new mainWindow.KeyboardEvent("keydown", { key: "k", metaKey: mac, ctrlKey: !mac, bubbles: true, cancelable: true });
+    doc.documentElement.dispatchEvent(event);
+    assert(!event.defaultPrevented, "the shortcut was taken from the page");
+  } finally {
+    tabmail.closeTab(content);
+    tabmail.switchToTab(0);
+  }
+});
+
+// The toolbar rebuilds its items when the index is turned on or off.
+async function setGloda(on) {
+  Services.prefs.setBoolPref(GLODA_PREF, on);
+  await waitFor(() => shown(field()));
+}
+
+test("glodaOff notice and Turn on", async () => {
+  const was = Services.prefs.getBoolPref(GLODA_PREF, true);
+  mainWindow.qolSearch.controller.manager.dismissed.clear();
+  try {
+    await setGloda(false);
+    await searchFor("Krankenversicherungsbeitrag");
+    const off = await waitFor(() => notice("glodaOff"));
+    off.querySelector(".qol-notice-action").click();
+    await waitFor(() => Services.prefs.getBoolPref(GLODA_PREF, false), 5000);
+    await waitFor(() => !notice("glodaOff"));
+    await waitFor(() => shown(field()));
+    await searchFor("Krankenversicherungsbeitrag");
+    assert(!notice("glodaOff"), "the notice came back with the index on");
+
+    // ✕ closes it for the rest of the session.
+    await setGloda(false);
+    await searchFor("Krankenversicherungsbeitrag");
+    (await waitFor(() => notice("glodaOff"))).querySelector(".qol-notice-close").click();
+    await waitFor(() => !notice("glodaOff"));
+    await searchFor("Rechnungsnummer");
+    assert(!notice("glodaOff"), "a closed notice came back");
+  } finally {
+    await setGloda(was);
+    mainWindow.qolSearch.controller.manager.dismissed.clear();
+  }
+});
+
+test("tip shows for five searches", async () => {
+  Services.prefs.clearUserPref(TIP_PREF);
+  const shownTips = [];
+  for (let run = 1; run <= 6; run++) {
+    setText(fieldInput(), "from:alice");
+    const panel = await openPanel();
+    shownTips.push(shown(panel.querySelector(".qol-panel-tip")));
+    panel.querySelector(".qol-panel-search").click();
+    await waitFor(() => panel.state === "closed");
+    await waitFor(() => results.isActive(win) && !chipRow().querySelector(".qol-searching:not([hidden])"), 10000);
+  }
+  assertEqual(shownTips, [true, true, true, true, true, false]);
+  assertEqual(Services.prefs.getIntPref(TIP_PREF, 0), 6);
+  // An empty panel has no tip.
+  Services.prefs.clearUserPref(TIP_PREF);
+  setText(fieldInput(), "");
+  const panel = await openPanel();
+  assert(!shown(panel.querySelector(".qol-panel-tip")), "an empty panel shows the tip");
+  panel.hidePopup();
+});
+
+test("empty result shows search all", async () => {
+  await searchFor("subject:Vereinsfeier");
+  assertEqual(win.gDBView.rowCount, 0);
+  const empty = chipRow().querySelector(".qol-search-empty");
+  assert(shown(empty), "no empty state");
+  assert(empty.textContent.includes(label("noResults")), `empty state reads ${empty.textContent}`);
+  assertEqual([...empty.querySelectorAll(".qol-chip")].map(chip => chip.textContent), [printed("subject:Vereinsfeier")]);
+  empty.querySelector(".qol-search-all").click();
+  await waitFor(() => win.gDBView.rowCount === 1);
+  assert(scopeChip("all").classList.contains("active"), "All mailboxes is not active");
+  assertEqual(scopeChip("all").textContent, `${label("allMailboxes")} · 1`);
+  assert(!chipRow().querySelector(".qol-search-empty"), "the empty state is still shown");
+});
+
+test("unknown folder blocks the search", async () => {
+  setText(fieldInput(), "in:nosuchfolder from:alice");
+  key(fieldInput(), "Enter");
+  const chip = await waitFor(() => chipRow()?.querySelector(".qol-chip.error"));
+  assertEqual(chip.textContent, "in:nosuchfolder");
+  assertEqual(chip.title, libs().qolSearchLabels.label(libs().qolSearchLabels.pickLanguage(Services.locale.appLocaleAsBCP47), "unknownFolder", { name: "nosuchfolder" }));
+  await sleep(300);
+  assert(!results.isActive(win), "the list switched to results");
+  assertEqual(win.gDBView.rowCount, inbox.getTotalMessages(false));
+  assert(!scopeChip("folder"), "scope chips shown for a blocked search");
+  key(fieldInput(), "Escape");
+  await waitFor(() => !chipRow());
+});
+
+test("bad date is ignored and marked", async () => {
+  await searchFor("after:32.13.2026 from:alice");
+  assertEqual(shownKeys(), seededSet(1, 5));
+  const chip = chipRow().querySelector(".qol-chip.error");
+  assert(chip, "the date is not marked");
+  assertEqual(chip.textContent, printed("after:32.13.2026"));
+  assertEqual(chip.title, label("badDate"));
+});
+
+test("German UI shows German labels and keywords", async () => {
+  const searched = [];
+  const handle = libs().qolSearchPanel.install(mainWindow, {
+    lang: "de",
+    onSearch: text => searched.push(text),
+    onEnd() {},
+    onScope() {},
+    onTurnOnIndex() {},
+    onDismissNotice() {},
+  });
+  try {
+    assertEqual(handle.root.querySelector("input.qol-search-input").placeholder, "E-Mails durchsuchen");
+    const from = handle.panel.querySelector('[data-row="from"] input');
+    from.value = "alice";
+    handle.panel.querySelector('[data-flag="attachment"]').click();
+    handle.panel.querySelector(".qol-panel-search").click();
+    assertEqual(searched, ["von:alice hat:anhang"]);
+    assertEqual(handle.panel.querySelector(".qol-panel-search").textContent, "Suchen");
+  } finally {
+    handle.destroy();
+  }
+});
+
+test("a panel that fails to install leaves nothing behind", async () => {
+  const before = doc.querySelectorAll("#qol-search-panel").length;
+  let threw = false;
+  try {
+    libs().qolSearchPanel.install(mainWindow, { lang: "en", sheetURL: "not a url", onSearch() {}, onEnd() {}, onScope() {}, onTurnOnIndex() {} });
+  } catch (e) {
+    threw = true;
+  }
+  assert(threw, "install did not fail");
+  assertEqual(doc.querySelectorAll("#qol-search-panel").length, before);
+});
+
+test("the default scope is read again for the next search", async () => {
+  try {
+    await setSearch({ scope: "all" });
+    await waitFor(() => mainWindow.qolSearch.controller.manager.config?.scope === "all");
+    await searchFor("from:alice");
+    assert(scopeChip("all").classList.contains("active"), "the new default scope was not used");
+    key(fieldInput(), "Escape");
+    await waitFor(() => !results.isActive(win));
+  } finally {
+    await setSearch({ scope: "folder" });
+    await waitFor(() => mainWindow.qolSearch.controller.manager.config?.scope === "folder");
+  }
+  await searchFor("from:alice");
+  assert(scopeChip("folder").classList.contains("active"), "the default scope did not change back");
+});
+
+test("the header counts only mails that can be shown", async () => {
+  await withRun(real => (w, q, opts, onProgress) =>
+    real(w, q, opts, state => {
+      const ghost = `${inbox.URI}#987654`;
+      onProgress({ ...state, folderIds: new Set([...state.folderIds, ghost]), allIds: new Set([...state.allIds, ghost]) });
+    }), async () => {
+    await searchFor("from:alice");
+  });
+  assertEqual(shownKeys(), seededSet(1, 5));
+  assertEqual(headerText(), `${label("results")} · 2`);
+});
+
+test("an empty hit list shows an empty search view", async () => {
+  results.show(win, []);
+  assert(results.isActive(win), "search not active");
+  assertEqual(win.gDBView.rowCount, 0);
+  results.end(win);
+  await waitFor(() => win.gFolder?.URI === inbox.URI && !win.gViewWrapper.isSearch);
+  assertEqual(win.gDBView.rowCount, inbox.getTotalMessages(false));
+});
+
+test("clicking the twisty of the selected folder keeps the search", async () => {
+  await searchFor("from:alice");
+  const twisty = win.folderTree.selectedRow.querySelector(".twisty");
+  assert(twisty, "the folder row has no twisty");
+  twisty.click();
+  await sleep(200);
+  assert(results.isActive(win), "the search ended");
+  assert(chipRow(), "the chips are gone");
+});
+
 // Runner
 
 try {
@@ -776,8 +1093,9 @@ for (const { name, fn } of tests) {
     if (loadError) {
       throw loadError;
     }
+    mainWindow.gTabmail.switchToTab(0);
     mainWindow.qolSearch?.end();
-    doc.getElementById("qol-search-panel")?.hidePopup();
+    mainWindow.qolSearch?.controller.panel?.panel.hidePopup();
     results.end(win);
     await openFolder(inbox);
     await fn();

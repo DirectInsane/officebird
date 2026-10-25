@@ -60,7 +60,10 @@ var qolSearchPanel = (() => {
     return value.startsWith('"') && !/^"[^"]*"$/.test(value);
   }
 
-  function install(win, { lang, sheetURL, defaultScope = () => "folder", onSearch, onEnd, onScope, onTurnOnIndex }) {
+  function install(
+    win,
+    { lang, sheetURL, defaultScope = () => "folder", tipShown = () => false, onSearch, onEnd, onScope, onTurnOnIndex, onDismissNotice }
+  ) {
     // Lets the integration tests make a hook fail.
     if (win.__qolSearchFail) {
       throw new Error("search hook failure (test)");
@@ -114,7 +117,7 @@ var qolSearchPanel = (() => {
     }
 
     function search(query) {
-      if (query.trim()) onSearch(query.trim(), scope);
+      if (query.trim()) onSearch(query.trim(), currentScope());
       else onEnd();
     }
 
@@ -146,7 +149,10 @@ var qolSearchPanel = (() => {
     let rows = emptyRows();
     // An untouched panel leaves the field's text as it is (it may say more than the rows).
     let edited = false;
-    let scope = defaultScope();
+    // The scope of the tab's shown results; without results the default scope, read anew
+    // each time so a changed setting applies to the next search.
+    let scope = null;
+    const currentScope = () => scope ?? defaultScope();
     const chipInputs = [];
     const renders = [];
 
@@ -351,7 +357,7 @@ var qolSearchPanel = (() => {
         radio.addEventListener("change", () => {
           if (radio.checked) scope = value;
         });
-        renders.push(() => (radio.checked = scope === value));
+        renders.push(() => (radio.checked = currentScope() === value));
         box.append(h("label", {}, radio, " ", text(labelKey)));
       }
       return box;
@@ -363,6 +369,8 @@ var qolSearchPanel = (() => {
       h("label", {}, text("dateFrom"), " ", dateInput("after")),
       h("label", {}, text("dateBefore"), " ", dateInput("before"))
     );
+    const tip = h("div", { class: "qol-panel-tip" }, text("tip"));
+    renders.push(() => (tip.hidden = !(hasCriteria(rows) && tipShown())));
     const clearAll = h("button", { class: "qol-panel-clear", type: "button" }, text("clear"));
     const searchButton = h("button", { class: "qol-panel-search", type: "button" }, text("search"));
     const body = h(
@@ -386,6 +394,7 @@ var qolSearchPanel = (() => {
       flagsControl(),
       h("span", { class: "qol-panel-label" }),
       scopeControl(),
+      tip,
       h("div", { class: "qol-panel-buttons" }, clearAll, searchButton)
     );
     const panel = doc.createXULElement("panel");
@@ -394,7 +403,6 @@ var qolSearchPanel = (() => {
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-label", text("filters"));
     panel.append(body);
-    (doc.getElementById("mainPopupSet") ?? doc.documentElement).append(panel);
 
     function renderPanel() {
       for (const render of renders) render();
@@ -432,34 +440,52 @@ var qolSearchPanel = (() => {
     });
     searchButton.addEventListener("click", runPanel);
 
-    // Result chips
+    // Result chips, one row per mail tab
 
-    let resultRow = null;
-
-    function removeResultRow() {
-      resultRow?.remove();
-      resultRow = null;
-    }
+    // about:3pane window -> its row below the list header.
+    const resultRows = new Map();
 
     function noticeElement(rowDoc, notice) {
       const node = el(rowDoc, "span", { class: "qol-notice", "data-kind": notice.kind }, text(notice.kind, notice));
       if (notice.kind === "glodaOff") {
-        const turnOn = el(rowDoc, "button", { type: "button" }, text("turnOn"));
+        const turnOn = el(rowDoc, "button", { class: "qol-notice-action", type: "button" }, text("turnOn"));
         turnOn.addEventListener("click", () => onTurnOnIndex());
         node.append(turnOn);
       }
+      const close = el(rowDoc, "button", { class: "qol-notice-close", type: "button", title: text("closeNotice"), "aria-label": text("closeNotice") }, "✕");
+      close.addEventListener("click", () => onDismissNotice?.(notice.kind));
+      node.append(close);
       return node;
     }
 
-    // `pane` is the about:3pane window whose list shows the results.
-    function setResults({ pane, folderLabel, folderCount, allCount, active, searching, notices = [] }) {
+    // `groups` are the query's alternatives, each a list of { text, error } terms.
+    function criteriaElement(rowDoc, groups) {
+      const node = el(rowDoc, "span", { class: "qol-search-criteria" });
+      groups.forEach((terms, index) => {
+        if (index > 0) node.append(el(rowDoc, "span", { class: "qol-search-or" }, text("or")));
+        for (const term of terms) {
+          const chip = el(rowDoc, "span", { class: "qol-chip" }, term.text);
+          if (term.error) {
+            chip.classList.add("error");
+            chip.title = term.error;
+          }
+          node.append(chip);
+        }
+      });
+      return node;
+    }
+
+    // `pane` is the about:3pane window whose list shows the results. Without counts (a
+    // search that could not run) the row shows only the criteria with errors.
+    function setResults({ pane, folderLabel, folderCount = null, allCount = null, active, searching = false, notices = [], criteria = [], empty = false }) {
       const rowDoc = pane.document;
       const header = rowDoc.getElementById("threadPaneHeaderBar");
       if (!header) return;
       loadSheet(pane);
-      if (resultRow?.ownerDocument !== rowDoc) {
-        removeResultRow();
+      let resultRow = resultRows.get(pane);
+      if (!resultRow) {
         resultRow = el(rowDoc, "div", { id: "qol-search-results", role: "group", "aria-label": text("results") });
+        resultRows.set(pane, resultRow);
       }
       if (resultRow.previousElementSibling !== header) header.after(resultRow);
       const chip = (value, label) => {
@@ -471,20 +497,44 @@ var qolSearchPanel = (() => {
         });
         return button;
       };
+      const children = [];
+      if (folderCount !== null) {
+        children.push(chip("folder", `${folderLabel} · ${folderCount}`), chip("all", `${text("allMailboxes")} · ${allCount}`));
+      }
       const spinner = el(rowDoc, "span", { class: "qol-searching" }, el(rowDoc, "span", { class: "qol-spinner" }), text("stillSearching"));
       spinner.hidden = !searching;
-      resultRow.replaceChildren(
-        chip("folder", `${folderLabel} · ${folderCount}`),
-        chip("all", `${text("allMailboxes")} · ${allCount}`),
-        spinner,
-        ...notices.map((notice) => noticeElement(rowDoc, notice))
-      );
-      scope = active;
+      children.push(spinner);
+      const errors = criteria.map((terms) => terms.filter((term) => term.error)).filter((terms) => terms.length);
+      if (errors.length && !empty) children.push(criteriaElement(rowDoc, errors));
+      children.push(...notices.map((notice) => noticeElement(rowDoc, notice)));
+      if (empty) {
+        const box = el(rowDoc, "div", { class: "qol-search-empty" }, el(rowDoc, "span", { class: "qol-search-none" }, text("noResults")), criteriaElement(rowDoc, criteria));
+        if (active === "folder") {
+          const all = el(rowDoc, "button", { class: "qol-search-all", type: "button" }, text("searchAll"));
+          all.addEventListener("click", () => onScope("all"));
+          box.append(all);
+        }
+        children.push(box);
+      }
+      resultRow.replaceChildren(...children);
     }
 
-    function clearResults() {
-      removeResultRow();
-      scope = defaultScope();
+    // Without `pane`, the rows of every tab.
+    function clearResults(pane) {
+      for (const [rowPane, resultRow] of resultRows) {
+        if (pane && rowPane !== pane) continue;
+        resultRow.remove();
+        resultRows.delete(rowPane);
+      }
+    }
+
+    // The scope the next search from the field uses; null for the default scope.
+    function setScope(value) {
+      scope = value;
+    }
+
+    function getQuery() {
+      return input.value;
     }
 
     function setQuery(query) {
@@ -503,7 +553,7 @@ var qolSearchPanel = (() => {
       } catch (e) {}
       panel.remove();
       root.remove();
-      removeResultRow();
+      clearResults();
       for (const target of sheetWindows) {
         try {
           target.windowUtils.removeSheetUsingURIString(sheetURL, target.windowUtils.AUTHOR_SHEET);
@@ -514,9 +564,16 @@ var qolSearchPanel = (() => {
       sheetWindows.clear();
     }
 
-    loadSheet(win);
-    updateField();
-    return { root, panel, setQuery, setResults, clearResults, focus, destroy };
+    // Nothing stays behind when the install fails half-way.
+    try {
+      (doc.getElementById("mainPopupSet") ?? doc.documentElement).append(panel);
+      loadSheet(win);
+      updateField();
+    } catch (e) {
+      destroy();
+      throw e;
+    }
+    return { root, panel, setQuery, getQuery, setResults, clearResults, setScope, focus, destroy };
   }
 
   return { install };

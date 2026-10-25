@@ -33,6 +33,14 @@
         "description": "Returns whether the search is available.",
         "parameters": []
       }
+    ],
+    "events": [
+      {
+        "name": "onTurnOnIndex",
+        "type": "function",
+        "description": "Fired when the user asks to turn on Thunderbird's full-text index.",
+        "parameters": []
+      }
     ]
   }
 ]

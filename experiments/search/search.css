@@ -260,6 +260,12 @@
   color: var(--selected-item-text-color);
 }
 
+#qol-search-panel .qol-panel-tip {
+  grid-column: 1 / -1;
+  color: var(--layout-color-2);
+  font-size: 0.85em;
+}
+
 #qol-search-panel .qol-panel-buttons {
   grid-column: 1 / -1;
   display: flex;
@@ -316,6 +322,49 @@
 }
 
 #qol-search-results .qol-notice button {
+  margin: 0;
+  font: inherit;
+}
+
+#qol-search-results .qol-notice-close {
+  appearance: none;
+  padding: 0 3px;
+  border: none;
+  background-color: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+#qol-search-results .qol-search-criteria {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+
+  & .qol-chip {
+    cursor: default;
+  }
+}
+
+#qol-search-results .qol-search-or {
+  color: var(--layout-color-2);
+  font-size: 0.85em;
+}
+
+#qol-search-results .qol-search-empty {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-block: 6px;
+}
+
+#qol-search-results .qol-search-none {
+  font-weight: 600;
+}
+
+#qol-search-results .qol-search-all {
   margin: 0;
   font: inherit;
 }

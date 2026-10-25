@@ -16,7 +16,7 @@ import { initialsFor, colorFor } from "../experiments/qol/avatar.mjs";
 const BIMI_ORIGINS = { origins: ["https://*/*"] };
 const RESULT_BATCH_MS = 30;
 const SAMPLES_PER_FOLDER = 50;
-const THUNDERBIRD_SETTINGS = ["listView", "markReadOnView", "unifiedFolders"];
+const THUNDERBIRD_SETTINGS = ["listView", "markReadOnView", "unifiedFolders", "glodaIndex"];
 
 async function loadStoredSettings() {
   const storage = browser.storage.local;
@@ -140,6 +140,19 @@ try {
   });
 } catch (e) {
   console.warn("[qol] default style set unavailable", e);
+}
+
+// "Turn on" in the search's index notice.
+try {
+  messenger.qolSearch.onTurnOnIndex.addListener(async () => {
+    try {
+      await messenger.qol.setThunderbirdSetting("glodaIndex", true);
+    } catch (e) {
+      console.warn("[qol] full-text index not turned on", e);
+    }
+  });
+} catch (e) {
+  console.warn("[qol] search index notice unavailable", e);
 }
 
 browser.storage.onChanged.addListener(async (changes, area) => {

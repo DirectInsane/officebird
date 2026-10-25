@@ -5,6 +5,7 @@
 var { ExtensionCommon } = ChromeUtils.importESModule("resource://gre/modules/ExtensionCommon.sys.mjs");
 var { ExtensionSupport } = ChromeUtils.importESModule("resource:///modules/ExtensionSupport.sys.mjs");
 var { NetUtil } = ChromeUtils.importESModule("resource://gre/modules/NetUtil.sys.mjs");
+var { MailServices } = ChromeUtils.importESModule("resource:///modules/MailServices.sys.mjs");
 
 // Experiment scripts share one global: only the API class is defined there.
 var qolSearch = (() => {
@@ -25,6 +26,19 @@ var qolSearch = (() => {
   ];
   // Without these a window keeps Thunderbird's own search bar.
   const REQUIRED_IDS = ["unifiedToolbarContent", "tabmail"];
+  // The panel's tip shows for the first TIP_RUNS searches.
+  const TIP_PREF = "extensions.officebird.search.tipCount";
+  const TIP_RUNS = 5;
+  // Tabs in which Ctrl/Cmd+K focuses the field.
+  const SHORTCUT_TABS = ["mail3PaneTab", "mailMessageTab"];
+
+  function isMailTab(tab) {
+    return tab?.mode?.name === "mail3PaneTab";
+  }
+
+  function paneOf(tab) {
+    return tab?.chromeBrowser?.contentWindow ?? null;
+  }
 
   function log(...args) {
     console.warn("[qolSearch]", ...args);
@@ -48,7 +62,7 @@ var qolSearch = (() => {
     return Object.fromEntries(SCRIPTS.map(([name]) => [name, sandbox[name]]));
   }
 
-  // The search field of one main window and the search it runs.
+  // The search field of one main window and the searches of its mail tabs.
   class SearchController {
     constructor(manager, win) {
       this.manager = manager;
@@ -57,24 +71,24 @@ var qolSearch = (() => {
       this.panel = null;
       this.lang = manager.libs.qolSearchLabels.pickLanguage(Services.locale.appLocaleAsBCP47);
       this.observer = null;
-      // The running or shown search: { pane, scope, sets, shown, started, searching, notices, hdr, run, folderLabel }.
-      this.active = null;
+      // Mail tab -> { text, search, blocked }. search: the running or shown search, { tab,
+      // pane, scope, sets, shown, started, searching, notices, hdr, run, folderLabel,
+      // criteria }; blocked: the criteria of a search that could not run.
+      this.tabs = new Map();
       // about:3pane windows -> their folder pane listeners.
       this.panes = new Map();
+      this.lastMailTab = null;
+      this.closedTabs = new WeakSet();
       this.originalFocus = null;
       this.onKeyDown = event => this.handleKeyDown(event);
       this.tabMonitor = {
         monitorName: "qolSearch",
         onTabTitleChanged() {},
-        onTabSwitched() {},
+        onTabSwitched: (tab, oldTab) => this.tabSwitched(tab, oldTab),
         onTabOpened() {},
         onTabPersist() {},
         onTabRestored() {},
-        onTabClosing: tab => {
-          if (this.active && tab.chromeBrowser?.contentWindow === this.active.pane) {
-            this.finish(this.active);
-          }
-        },
+        onTabClosing: tab => this.tabClosing(tab),
       };
     }
 
@@ -85,10 +99,12 @@ var qolSearch = (() => {
         lang: this.lang,
         sheetURL: this.manager.sheetURL,
         defaultScope: () => this.manager.config?.scope ?? "folder",
+        tipShown: () => Services.prefs.getIntPref(TIP_PREF, 0) < TIP_RUNS,
         onSearch: (text, scope) => this.search(text, scope),
         onEnd: () => this.end(),
         onScope: scope => this.setScope(scope),
         onTurnOnIndex: () => this.manager.turnOnIndex(),
+        onDismissNotice: kind => this.manager.dismissNotice(kind),
       });
       this.place();
       // Customizing the toolbar or switching spaces rebuilds the toolbar's items.
@@ -107,13 +123,17 @@ var qolSearch = (() => {
       };
       win.QuickSearchFocus = this.quickSearchFocus;
       win.addEventListener("keydown", this.onKeyDown, true);
+      const current = win.gTabmail.currentTabInfo;
+      if (isMailTab(current)) {
+        this.lastMailTab = current;
+      }
       win.gTabmail.registerTabMonitor(this.tabMonitor);
     }
 
     destroy() {
       const { win } = this;
       try {
-        this.end();
+        this.endAll();
       } catch (e) {
         log("search not ended", e);
       }
@@ -127,15 +147,10 @@ var qolSearch = (() => {
       } catch (e) {
         // Not registered.
       }
-      for (const [pane, listeners] of this.panes) {
-        try {
-          pane.folderTree?.removeEventListener("select", listeners.select);
-          pane.folderTree?.removeEventListener("click", listeners.click);
-        } catch (e) {
-          // The tab is gone.
-        }
+      for (const pane of [...this.panes.keys()]) {
+        this.unwatchPane(pane);
       }
-      this.panes.clear();
+      this.tabs.clear();
       try {
         this.panel?.destroy();
       } catch (e) {
@@ -167,10 +182,14 @@ var qolSearch = (() => {
       return Boolean(root?.isConnected && root.getBoundingClientRect().width > 0);
     }
 
+    // Ctrl/Cmd+K wherever the focus is in a mail tab; other tabs (web pages) keep the key.
     handleKeyDown(event) {
       const mac = Services.appinfo.OS === "Darwin";
       const accel = mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-      if (!accel || event.shiftKey || event.altKey || event.key?.toLowerCase() !== "k" || !this.fieldShown()) {
+      if (!accel || event.shiftKey || event.altKey || event.key?.toLowerCase() !== "k") {
+        return;
+      }
+      if (!SHORTCUT_TABS.includes(this.win.gTabmail.currentTabInfo?.mode?.name) || !this.fieldShown()) {
         return;
       }
       event.preventDefault();
@@ -178,18 +197,67 @@ var qolSearch = (() => {
       this.panel.focus();
     }
 
-    // The mail tab to show results in: the current one, else the first.
-    searchPane() {
+    // Tabs
+
+    tabState(tab) {
+      let state = this.tabs.get(tab);
+      if (!state) {
+        state = { text: "", search: null, blocked: null };
+        this.tabs.set(tab, state);
+      }
+      return state;
+    }
+
+    isCurrent(tab) {
+      return this.win.gTabmail.currentTabInfo === tab;
+    }
+
+    // The field shows the query of the active mail tab; other tabs show it empty.
+    tabSwitched(tab, oldTab) {
+      if (oldTab && isMailTab(oldTab) && !this.closedTabs.has(oldTab)) {
+        this.tabState(oldTab).text = this.panel.getQuery();
+      }
+      if (isMailTab(tab)) {
+        this.lastMailTab = tab;
+        const state = this.tabs.get(tab);
+        this.panel.setQuery(state?.text ?? "");
+        this.panel.setScope(state?.search?.scope ?? null);
+      } else {
+        this.panel.setQuery("");
+        this.panel.setScope(null);
+      }
+    }
+
+    tabClosing(tab) {
+      this.closedTabs.add(tab);
+      const state = this.tabs.get(tab);
+      if (state?.search) {
+        this.finish(state.search);
+      }
+      this.tabs.delete(tab);
+      const pane = paneOf(tab);
+      if (pane) {
+        this.unwatchPane(pane);
+        this.panel.clearResults(pane);
+      }
+      if (this.lastMailTab === tab) {
+        this.lastMailTab = null;
+      }
+    }
+
+    // The mail tab to show results in: the current one, else the one used last.
+    searchTab() {
       const tabmail = this.win.gTabmail;
-      if (tabmail.currentAbout3Pane) {
-        return tabmail.currentAbout3Pane;
+      const current = tabmail.currentTabInfo;
+      if (isMailTab(current)) {
+        return current;
       }
-      const tab = tabmail.tabInfo.find(info => info.mode.name === "mail3PaneTab");
-      if (!tab) {
-        return null;
+      const recent = this.lastMailTab && tabmail.tabInfo.includes(this.lastMailTab) ? this.lastMailTab : null;
+      const tab = recent ?? tabmail.tabInfo.find(isMailTab);
+      if (tab) {
+        tabmail.switchToTab(tab);
       }
-      tabmail.switchToTab(tab);
-      return tab.chromeBrowser.contentWindow;
+      return tab ?? null;
     }
 
     // Selecting a folder ends the search, also clicking the folder already selected.
@@ -197,19 +265,26 @@ var qolSearch = (() => {
       if (this.panes.has(pane)) {
         return;
       }
+      const stateOf = () => [...this.tabs].find(([tab]) => paneOf(tab) === pane)?.[1] ?? null;
+      const searchOf = () => stateOf()?.search ?? null;
       const listeners = {
         // Runs after the folder pane's own handler, which has shown the folder by now.
         select: () => {
-          const search = this.active;
-          if (search?.pane === pane) {
-            this.finish(search);
+          const state = stateOf();
+          if (state?.search) {
+            this.finish(state.search);
             this.libs.qolSearchResults.end(pane);
+          } else if (state?.blocked) {
+            state.blocked = null;
+            this.panel.clearResults(pane);
           }
         },
+        // The row itself, not its twisty, which only opens or closes the subfolders.
         click: event => {
           const row = event.target.closest?.("li");
-          if (this.active?.pane === pane && row && row === pane.folderTree.selectedRow) {
-            this.end();
+          const search = searchOf();
+          if (search && row && row === pane.folderTree.selectedRow && !event.target.closest(".twisty")) {
+            this.endSearch(search);
           }
         },
       };
@@ -218,6 +293,19 @@ var qolSearch = (() => {
       this.panes.set(pane, listeners);
     }
 
+    unwatchPane(pane) {
+      const listeners = this.panes.get(pane);
+      this.panes.delete(pane);
+      try {
+        pane.folderTree?.removeEventListener("select", listeners.select);
+        pane.folderTree?.removeEventListener("click", listeners.click);
+      } catch (e) {
+        // The tab is gone.
+      }
+    }
+
+    // Searching
+
     search(text, scope) {
       const { qolSearchQuery, qolSearchEngine } = this.libs;
       const query = qolSearchQuery.parse(text);
@@ -225,18 +313,33 @@ var qolSearch = (() => {
         this.end();
         return;
       }
-      const pane = this.searchPane();
+      const tab = this.searchTab();
+      const pane = tab && paneOf(tab);
       if (!pane) {
         log("no mail tab to show results in");
         return;
       }
-      if (this.active && this.active.pane !== pane) {
-        this.end();
+      const state = this.tabState(tab);
+      state.text = text;
+      this.panel.setQuery(text);
+      this.watchPane(pane);
+      const criteria = this.criteria(query);
+      if (criteria.some(terms => terms.some(term => term.blocking))) {
+        // Whatever the tab shows stays as it is.
+        state.blocked = criteria;
+        if (state.search) {
+          this.render(state.search);
+        } else {
+          this.panel.setResults({ pane, criteria });
+        }
+        return;
       }
-      const previous = this.active;
+      state.blocked = null;
+      const previous = state.search;
       previous?.run?.cancel();
       // A new search in the same list keeps the list switched until its first report.
       const search = {
+        tab,
         pane,
         scope,
         sets: { folder: new Set(), all: new Set() },
@@ -244,26 +347,64 @@ var qolSearch = (() => {
         started: previous?.started ?? false,
         searching: true,
         notices: [],
+        // Notice kinds whose cause went away while the search ran.
+        droppedNotices: new Set(),
         hdr: null,
         run: null,
         folderLabel: this.folderLabel(pane, query),
+        criteria,
       };
-      this.active = search;
-      this.watchPane(pane);
-      const run = qolSearchEngine.run(pane, query, { current: pane.gFolder, scopeDefault: scope }, state => this.progress(search, state));
+      state.search = search;
+      this.panel.setScope(scope);
+      Services.prefs.setIntPref(TIP_PREF, Services.prefs.getIntPref(TIP_PREF, 0) + 1);
+      const run = qolSearchEngine.run(pane, query, { current: pane.gFolder, scopeDefault: scope }, progress => this.progress(search, progress));
       search.run = run;
-      if (this.active !== search) {
+      if (!this.isShown(search)) {
         // Ended while it reported for the first time.
         run.cancel();
         return;
       }
       run.done.then(null, e => {
         log("search failed", e);
-        if (this.active === search && search.searching) {
+        if (this.isShown(search) && search.searching) {
           search.searching = false;
           this.render(search);
         }
       });
+    }
+
+    isShown(search) {
+      return this.tabs.get(search.tab)?.search === search;
+    }
+
+    folderInfos() {
+      const infos = [];
+      for (const folder of MailServices.accounts.allFolders) {
+        if (!folder.isServer) {
+          infos.push({ uri: folder.URI, name: folder.localizedName, account: folder.server.prettyName });
+        }
+      }
+      return infos;
+    }
+
+    // The query's alternatives as printed terms; invalid dates and unknown folders carry
+    // their error, and an unknown folder blocks the search.
+    criteria(query) {
+      const { qolSearchQuery, qolSearchTerms, qolSearchLabels } = this.libs;
+      const hasFolder = query.or.some(terms => terms.some(leaf => leaf.field === "in"));
+      const infos = hasFolder ? this.folderInfos() : [];
+      return query.or.map(terms =>
+        terms.map(leaf => {
+          const unknown = leaf.field === "in" && !leaf.error && !qolSearchTerms.matchFolders(infos, leaf.value).length;
+          let error = null;
+          if (leaf.error === "date") {
+            error = qolSearchLabels.label(this.lang, "badDate");
+          } else if (unknown) {
+            error = qolSearchLabels.label(this.lang, "unknownFolder", { name: leaf.value });
+          }
+          return { text: qolSearchQuery.print({ or: [[leaf]] }, this.lang), error, blocking: unknown };
+        })
+      );
     }
 
     folderLabel(pane, query) {
@@ -272,7 +413,7 @@ var qolSearch = (() => {
     }
 
     progress(search, state) {
-      if (this.active !== search) {
+      if (!this.isShown(search)) {
         return;
       }
       search.sets = { folder: state.folderIds, all: state.allIds };
@@ -292,17 +433,28 @@ var qolSearch = (() => {
         return;
       }
       const ids = search.sets[search.scope];
-      const hdrs = list => (search.hdr ? list.map(id => search.hdr(id)).filter(Boolean) : []);
+      // Ids whose mail can still be read, with its header.
+      const readable = list => {
+        const found = [];
+        for (const id of list) {
+          const hdr = search.hdr?.(id);
+          if (hdr) {
+            found.push([id, hdr]);
+          }
+        }
+        return found;
+      };
       try {
         if (!search.started || [...search.shown].some(id => !ids.has(id))) {
-          results.show(pane, hdrs([...ids]));
-          search.shown = new Set(ids);
+          const found = readable(ids);
+          results.show(pane, found.map(([, hdr]) => hdr));
+          search.shown = new Set(found.map(([id]) => id));
           search.started = true;
         } else {
-          const fresh = [...ids].filter(id => !search.shown.has(id));
+          const fresh = readable([...ids].filter(id => !search.shown.has(id)));
           if (fresh.length) {
-            results.add(pane, hdrs(fresh));
-            for (const id of fresh) {
+            results.add(pane, fresh.map(([, hdr]) => hdr));
+            for (const [id] of fresh) {
               search.shown.add(id);
             }
           }
@@ -313,7 +465,10 @@ var qolSearch = (() => {
         this.finish(search);
         return;
       }
-      this.setHeader(pane, ids.size);
+      this.setHeader(pane, search.shown.size);
+      if (this.isCurrent(search.tab)) {
+        this.panel.setScope(search.scope);
+      }
       this.panel.setResults({
         pane,
         folderLabel: search.folderLabel,
@@ -321,8 +476,20 @@ var qolSearch = (() => {
         allCount: search.sets.all.size,
         active: search.scope,
         searching: search.searching,
-        notices: search.notices,
+        notices: search.notices.filter(notice => !this.manager.dismissed.has(notice.kind) && !search.droppedNotices.has(notice.kind)),
+        criteria: this.tabs.get(search.tab).blocked ?? search.criteria,
+        empty: !search.searching && !search.shown.size,
       });
+    }
+
+    // After a notice was closed or its cause removed.
+    dropNotice(kind) {
+      for (const { search } of this.tabs.values()) {
+        if (search?.notices.some(notice => notice.kind === kind)) {
+          search.droppedNotices.add(kind);
+          this.render(search);
+        }
+      }
     }
 
     setHeader(pane, count) {
@@ -341,9 +508,9 @@ var qolSearch = (() => {
       }
     }
 
-    // Switches between the result sets of the search that ran; no new search.
+    // Switches between the result sets of the current tab's search; no new search.
     setScope(scope) {
-      const search = this.active;
+      const search = this.tabs.get(this.win.gTabmail.currentTabInfo)?.search;
       if (!search || search.scope === scope) {
         return;
       }
@@ -351,12 +518,41 @@ var qolSearch = (() => {
       this.render(search);
     }
 
-    // Esc, ✕, Clear, clicking the selected folder: the folder comes back as it was.
+    // Esc, ✕, Clear: the current tab's folder comes back as it was.
     end() {
-      const search = this.active;
-      if (!search) {
+      const tab = this.win.gTabmail.currentTabInfo;
+      const state = this.tabs.get(tab);
+      if (!state) {
         return;
       }
+      state.text = "";
+      state.blocked = null;
+      const pane = paneOf(tab);
+      if (pane) {
+        this.panel.clearResults(pane);
+      }
+      if (state.search) {
+        this.endSearch(state.search);
+      }
+    }
+
+    // Ends the searches of every tab and empties the field.
+    endAll() {
+      this.panel?.setQuery("");
+      for (const [tab, state] of this.tabs) {
+        state.text = "";
+        state.blocked = null;
+        const pane = paneOf(tab);
+        if (pane) {
+          this.panel.clearResults(pane);
+        }
+        if (state.search) {
+          this.endSearch(state.search);
+        }
+      }
+    }
+
+    endSearch(search) {
       this.finish(search);
       const results = this.libs.qolSearchResults;
       if (results.isActive(search.pane)) {
@@ -367,11 +563,16 @@ var qolSearch = (() => {
 
     // Stops the search and its chips; the list is left as it is.
     finish(search) {
-      if (this.active === search) {
-        this.active = null;
+      const state = this.tabs.get(search.tab);
+      if (state?.search === search) {
+        state.search = null;
+        state.blocked = null;
       }
       search.run?.cancel();
-      this.panel?.clearResults();
+      this.panel?.clearResults(search.pane);
+      if (this.isCurrent(search.tab)) {
+        this.panel?.setScope(null);
+      }
     }
   }
 
@@ -382,8 +583,12 @@ var qolSearch = (() => {
       this.features = { search: true };
       this.listenerId = `${extension.id}-search`;
       this.sheetURL = extension.rootURI.resolve(SHEET_PATH);
-      this.windows = new Set();
+      // Window -> its unload listener.
+      this.windows = new Map();
       this.started = false;
+      // Notice kinds closed with ✕: not shown again until Thunderbird restarts.
+      this.dismissed = new Set();
+      this.indexListeners = new Set();
       this.libs = null;
       try {
         this.libs = loadAddonScripts(extension);
@@ -398,7 +603,7 @@ var qolSearch = (() => {
     init(config) {
       this.config = config;
       if (this.started) {
-        for (const win of this.windows) {
+        for (const win of this.windows.keys()) {
           this.detach(win);
         }
         this.refreshAll();
@@ -424,7 +629,7 @@ var qolSearch = (() => {
         ExtensionSupport.unregisterWindowListener(this.listenerId);
         this.started = false;
       }
-      for (const win of [...this.windows]) {
+      for (const win of [...this.windows.keys()]) {
         this.forget(win);
       }
     }
@@ -434,8 +639,26 @@ var qolSearch = (() => {
       log(`search unavailable: ${reason}`, error ?? "");
     }
 
-    // Not wired up yet: the index stays as it is.
-    turnOnIndex() {}
+    // The background turns the index on through the Thunderbird settings allowlist.
+    turnOnIndex() {
+      for (const fire of this.indexListeners) {
+        fire.async();
+      }
+      this.eachController(controller => controller.dropNotice("glodaOff"));
+    }
+
+    dismissNotice(kind) {
+      this.dismissed.add(kind);
+      this.eachController(controller => controller.dropNotice(kind));
+    }
+
+    eachController(fn) {
+      for (const win of this.windows.keys()) {
+        if (win.qolSearch) {
+          fn(win.qolSearch.controller);
+        }
+      }
+    }
 
     // Windows
 
@@ -443,21 +666,26 @@ var qolSearch = (() => {
       if (this.windows.has(win)) {
         return;
       }
-      this.windows.add(win);
-      win.addEventListener("unload", () => this.forget(win), { once: true });
+      const onUnload = () => this.forget(win);
+      this.windows.set(win, onUnload);
+      win.addEventListener("unload", onUnload, { once: true });
       this.refresh(win);
     }
 
     forget(win) {
-      if (this.windows.delete(win)) {
-        this.detach(win);
+      const onUnload = this.windows.get(win);
+      if (!onUnload) {
+        return;
       }
+      this.windows.delete(win);
+      win.removeEventListener("unload", onUnload);
+      this.detach(win);
     }
 
     // A window that failed before gets another try with every new config.
     refreshAll() {
       this.features.search = Boolean(this.libs);
-      for (const win of this.windows) {
+      for (const win of this.windows.keys()) {
         this.refresh(win);
       }
     }
@@ -483,7 +711,7 @@ var qolSearch = (() => {
         return;
       }
       const controller = new SearchController(this, win);
-      win.qolSearch = { libs: this.libs, controller, end: () => controller.end() };
+      win.qolSearch = { libs: this.libs, controller, end: () => controller.endAll() };
       try {
         controller.start();
       } catch (e) {
@@ -513,7 +741,7 @@ var qolSearch = (() => {
       }
     }
 
-    getAPI() {
+    getAPI(context) {
       if (!this.manager) {
         this.manager = new SearchManager(this.extension);
       }
@@ -523,6 +751,14 @@ var qolSearch = (() => {
           init: async config => manager.init(config),
           updateConfig: async config => manager.updateConfig(config),
           getFeatures: async () => ({ ...manager.features }),
+          onTurnOnIndex: new ExtensionCommon.EventManager({
+            context,
+            name: "qolSearch.onTurnOnIndex",
+            register: fire => {
+              manager.indexListeners.add(fire);
+              return () => manager.indexListeners.delete(fire);
+            },
+          }).api(),
         },
       };
     }
