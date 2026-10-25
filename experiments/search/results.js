@@ -290,8 +290,9 @@ var qolSearchResults = (() => {
       }
       setHits(win, state, hdrs);
       if (newestFirst || switching) {
-        // Instead of the search view's own default, the order the hits arrive in. The
-        // view created next takes the sort over and keeps it for the hits added later.
+        // Date, newest first, replaces the search view's default of the order the hits
+        // arrive in. The view created next takes this sort over and keeps it for the hits
+        // added later.
         state.wrapper._sort = [[win.Ci.nsMsgViewSortType.byDate, win.Ci.nsMsgViewSortOrder.descending]];
       }
       // Re-creates the view, which fills itself with the hits.

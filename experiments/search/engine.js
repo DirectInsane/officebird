@@ -115,8 +115,9 @@ var qolSearchEngine = (() => {
       hdrs.set(id, msgHdr);
     }
 
-    // A negated leaf counts as matching everything until its set is complete, so a
-    // result only ever grows while the search runs.
+    // Until its set is complete, a negated leaf's set counts as the universe, so the leaf
+    // matches nothing and comes in only once its set is final: a result only ever grows
+    // while the search runs.
     function combined() {
       const shown = new Map(leafSets);
       const view = {
