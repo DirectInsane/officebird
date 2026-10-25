@@ -36,6 +36,7 @@ Officebird brings the parts of Outlook that people miss most to Thunderbird: a m
 | **Date groups** | "Today", "Yesterday" and older groups as slim headers, for one folder or all at once. They open expanded in every folder; a group you collapse stays collapsed. |
 | **Table view** | Avatars and a preview line in the classic table, and a date column that shows the time for today, the weekday for this week and the date for older mail. |
 | **Remote content notice** | Custom colors and a compact size for the "remote content blocked" bar. |
+| **Search** | A query field with a filter panel replaces Thunderbird's search bar (it can be brought back in the settings). Type words or use keywords, in English or German: `from:`/`von:`, `to:`/`an:`, `subject:`/`betreff:`, `in:`, `after:`/`nach:`, `before:`/`vor:`, `tag:`/`schlagwort:`, `has:attachment`, `is:unread`, `is:flagged`; `OR` combines, a minus excludes. Results appear in the message list, for **This folder** or **All mailboxes**. |
 | **Thunderbird switches** | Unified folders (Inbox, Drafts, Sent, Spam of all accounts) above the accounts, and whether mail is marked read when shown, right in the add-on's settings. |
 
 ### Compose window
@@ -94,6 +95,7 @@ Officebird also uses two experiment APIs, because Thunderbird's regular add-on A
 ## Limitations
 
 - Previews and verification work for mail stored on your computer: local folders, and IMAP folders kept for offline use (Thunderbird's default).
+- Search finds whole words and word beginnings in the mail text through Thunderbird's full-text index. Other parts of words are found by reading the stored mails, which takes longer in large mailboxes. Like previews, this reads mail stored on your computer.
 - Plain-text mail has no formatting, so the ribbon's formatting tools have nothing to do there.
 - Officebird hooks into Thunderbird's internal code. If a future version changes it, the affected feature turns itself off; *Status* in the settings shows which.
 
