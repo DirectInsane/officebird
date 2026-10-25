@@ -6,7 +6,7 @@ import vm from "node:vm";
 // Classic script; the experiment runs it in a sandbox, so do the same.
 const context = {};
 vm.runInNewContext(readFileSync(new URL("../experiments/qol/previewtext.js", import.meta.url), "utf8"), context);
-const { clean } = context.qolPreviewText;
+const { clean, pickBody } = context.qolPreviewText;
 
 test("newsletter preheader padding (zero-width non-joiner + space) disappears", () => {
   const padded = "Persönliche Informationen abrufen. " + "‌ ".repeat(80) + "Bank-Logo Sehr geehrter Herr Mustermann";
@@ -72,4 +72,27 @@ test("text direction overrides are removed, so a preview cannot reverse its text
   assert.equal(clean("a‪b‫c‬d‭e⁦f⁧g⁨h⁩i&#x202E;j"), "abcdefghij");
   // Marks that only set the direction of neutral characters stay.
   assert.equal(clean("a‎b‏c"), "a‎b‏c");
+});
+
+test("pickBody prefers the first plain-text part", () => {
+  const parts = [
+    { type: "multipart/mixed", attachment: false, data: "" },
+    { type: "text/html", attachment: false, data: "<p>Hallo</p>" },
+    { type: "text/plain", attachment: false, data: "Hallo" },
+    { type: "text/plain", attachment: false, data: "Zweiter Teil" },
+  ];
+  assert.equal(pickBody(parts).data, "Hallo");
+});
+
+test("pickBody falls back to HTML and skips empty parts and attachments", () => {
+  const parts = [
+    { type: "text/plain", attachment: false, data: " \r\n " },
+    { type: "text/plain", attachment: true, data: "notes.txt" },
+    { type: "text/html", attachment: false, data: "<p>Body</p>" },
+  ];
+  assert.equal(pickBody(parts).type, "text/html");
+});
+
+test("pickBody returns null without a text part", () => {
+  assert.equal(pickBody([{ type: "image/png", attachment: false, data: "x" }]), null);
 });

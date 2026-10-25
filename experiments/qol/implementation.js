@@ -14,6 +14,9 @@ const MAX_HEADER_BYTES = 65536;
 const CARD_BATCH_MS = 50;
 const PREVIEW_BATCH_MS = 100;
 const MAX_PARSE_BYTES = 2 * 1024 * 1024;
+const PREVIEW_READ_BYTES = 256 * 1024;
+const PREVIEW_RETRY_MS = 30000;
+const PREVIEW_MAX_TRIES = 3;
 const MAX_PARALLEL_PARSES = 2;
 const PREVIEW_MAX_CHARS = 600;
 // Provider detection reads each message from disk on the main thread.
@@ -56,14 +59,21 @@ class CappedMap extends Map {
 // controls, so the local copy is read. Returns all occurrences, topmost first, one per
 // line, or null when there is no local copy yet.
 function readAuthResults(hdr) {
-  const folder = hdr.folder;
-  if (!folder.hasMsgOffline(hdr.messageKey)) {
+  if (!hdr.folder.hasMsgOffline(hdr.messageKey)) {
     return null;
   }
-  const limit = Math.min(MAX_HEADER_BYTES, hdr.getUint32Property("offlineMsgSize") || hdr.messageSize || MAX_HEADER_BYTES);
-  const stream = folder.getMsgInputStream(hdr);
+  const text = readLocalCopy(hdr, MAX_HEADER_BYTES, true);
+  const end = text.search(/\r?\n\r?\n/);
+  const block = (end >= 0 ? text.slice(0, end) : text).replace(/^>?From [^\r\n]*\r?\n/, "");
+  const values = MimeParser.extractHeaders(block + "\r\n\r\n").getRawHeader("authentication-results") || [];
+  return values.map(v => v.replace(/\r?\n[ \t]+/g, " ").replace(/[\r\n]/g, " ")).join("\n");
+}
+
+// Up to `max` bytes of the local copy, as a binary string.
+function readLocalCopy(hdr, max, headersOnly = false) {
+  const limit = Math.min(max, hdr.getUint32Property("offlineMsgSize") || hdr.messageSize || max);
   const sis = Cc["@mozilla.org/scriptableinputstream;1"].createInstance(Ci.nsIScriptableInputStream);
-  sis.init(stream);
+  sis.init(hdr.folder.getMsgInputStream(hdr));
   let text = "";
   try {
     while (text.length < limit) {
@@ -71,8 +81,8 @@ function readAuthResults(hdr) {
       if (!available) {
         break;
       }
-      text += sis.readBytes(Math.min(available, 4096, limit - text.length));
-      if (/\r?\n\r?\n/.test(text)) {
+      text += sis.readBytes(Math.min(available, 65536, limit - text.length));
+      if (headersOnly && /\r?\n\r?\n/.test(text)) {
         break;
       }
     }
@@ -81,10 +91,34 @@ function readAuthResults(hdr) {
   } finally {
     sis.close();
   }
-  const end = text.search(/\r?\n\r?\n/);
-  const block = (end >= 0 ? text.slice(0, end) : text).replace(/^>?From [^\r\n]*\r?\n/, "");
-  const values = MimeParser.extractHeaders(block + "\r\n\r\n").getRawHeader("authentication-results") || [];
-  return values.map(v => v.replace(/\r?\n[ \t]+/g, " ").replace(/[\r\n]/g, " ")).join("\n");
+  return text;
+}
+
+// For mails too large for the full parser. Text parts come before the attachments,
+// so the start of the message holds them.
+function readStartPreview(hdr, pickBody) {
+  const raw = readLocalCopy(hdr, PREVIEW_READ_BYTES).replace(/^>?From [^\r\n]*\r?\n/, "");
+  const parts = new Map();
+  MimeParser.parseSync(
+    raw,
+    {
+      startPart(num, headers) {
+        const disposition = headers.getRawHeader("content-disposition")?.[0] || "";
+        const { mediatype, subtype } = headers.contentType;
+        parts.set(num, { type: `${mediatype}/${subtype}`, attachment: /^\s*attachment/i.test(disposition), data: "" });
+      },
+      deliverPartData(num, data) {
+        parts.get(num).data += data;
+      },
+    },
+    { bodyformat: "decode", strformat: "unicode" }
+  );
+  const body = pickBody([...parts.values()]);
+  if (body?.type !== "text/html") {
+    return body?.data || "";
+  }
+  const flags = Ci.nsIDocumentEncoder.OutputNoScriptContent | Ci.nsIDocumentEncoder.OutputNoFramesContent;
+  return Cc["@mozilla.org/parserutils;1"].getService(Ci.nsIParserUtils).convertToPlainText(body.data, flags, 0);
 }
 
 // loadSubScript refuses add-on package URLs in privileged code, hence the sandbox.
@@ -121,8 +155,9 @@ class QolState {
       log("date formatter not loaded", e);
     }
     this.previewClean = text => (text || "").replace(/\s+/g, " ").trim();
+    this.pickBody = null;
     try {
-      this.previewClean = loadAddonScript(extension, "experiments/qol/previewtext.js").qolPreviewText.clean;
+      ({ clean: this.previewClean, pickBody: this.pickBody } = loadAddonScript(extension, "experiments/qol/previewtext.js").qolPreviewText);
     } catch (e) {
       log("preview text cleanup not loaded", e);
     }
@@ -147,7 +182,7 @@ class QolState {
     this.generation = 0;
     this.pending = new Map(); // id → message header
     this.pendingTimer = null;
-    this.previewTried = new Set();
+    this.previewTries = new CappedMap(); // id → { count, at }
     this.previewQueue = new Map();
     this.previewTimer = null;
     this.previewText = new CappedMap(); // id → text from the full parser
@@ -1184,10 +1219,12 @@ class QolState {
   }
 
   queuePreview(hdr, id) {
-    if (this.previewTried.has(id)) {
+    // A server fetch can fail (no connection yet, server busy); try again later.
+    const tries = this.previewTries.get(id) || { count: 0, at: 0 };
+    if (this.previewText.has(id) || tries.count >= PREVIEW_MAX_TRIES || Date.now() - tries.at < PREVIEW_RETRY_MS) {
       return;
     }
-    this.previewTried.add(id);
+    this.previewTries.set(id, { count: tries.count + 1, at: Date.now() });
     const folderURI = hdr.folder.URI;
     if (!this.previewQueue.has(folderURI)) {
       this.previewQueue.set(folderURI, { folder: hdr.folder, keys: [], ids: new Set() });
@@ -1251,9 +1288,19 @@ class QolState {
         !ids.has(id) ||
         hdr.getStringProperty("preview") ||
         this.previewText.has(id) ||
-        hdr.messageSize > MAX_PARSE_BYTES ||
         !folder.hasMsgOffline(key)
       ) {
+        continue;
+      }
+      if (hdr.messageSize > MAX_PARSE_BYTES) {
+        let text = "";
+        try {
+          text = this.pickBody ? readStartPreview(hdr, this.pickBody) : "";
+        } catch (e) {
+          log("preview from message start failed", e);
+        }
+        this.previewText.set(id, this.previewClean(text).slice(0, PREVIEW_MAX_CHARS));
+        this.redecorate(new Set([id]));
         continue;
       }
       this.parseQueue.push({ hdr, id });

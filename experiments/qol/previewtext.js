@@ -81,5 +81,11 @@ var qolPreviewText = (() => {
       .trim();
   }
 
-  return { clean };
+  // The part a preview is made from: the first plain-text body, else the first HTML one.
+  function pickBody(parts) {
+    const bodies = parts.filter(p => !p.attachment && p.data.trim());
+    return bodies.find(p => p.type === "text/plain") || bodies.find(p => p.type === "text/html") || null;
+  }
+
+  return { clean, pickBody };
 })();
