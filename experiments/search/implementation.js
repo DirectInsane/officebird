@@ -72,8 +72,8 @@ var qolSearch = (() => {
       this.lang = manager.libs.qolSearchLabels.pickLanguage(Services.locale.appLocaleAsBCP47);
       this.observer = null;
       // Mail tab -> { text, search, blocked }. search: the running or shown search, { tab,
-      // pane, scope, sets, shown, started, searching, notices, hdr, run, folderLabel,
-      // criteria }; blocked: the criteria of a search that could not run.
+      // pane, scope, sets, shown, started, sorted, searching, notices, hdr, run,
+      // folderLabel, criteria }; blocked: the criteria of a search that could not run.
       this.tabs = new Map();
       // about:3pane windows -> their folder pane listeners.
       this.panes = new Map();
@@ -383,6 +383,8 @@ var qolSearch = (() => {
         sets: { folder: new Set(), all: new Set() },
         shown: (!fresh && previous?.shown) || new Set(),
         started: !fresh && (previous?.started ?? false),
+        // Whether the list was sorted for this search; the user's sort is kept after that.
+        sorted: fresh && (previous?.sorted ?? false),
         searching: true,
         notices: [],
         // Notice kind -> the notice shown instead (null: none), after its cause changed
@@ -507,11 +509,13 @@ var qolSearch = (() => {
         return found;
       };
       try {
-        if (!search.started || [...search.shown].some(id => !ids.has(id))) {
+        // A new search shows its hits anew, sorted newest first.
+        if (!search.started || !search.sorted || [...search.shown].some(id => !ids.has(id))) {
           const found = readable(ids);
-          results.show(pane, found.map(([, hdr]) => hdr));
+          results.show(pane, found.map(([, hdr]) => hdr), { newestFirst: !search.sorted });
           search.shown = new Set(found.map(([id]) => id));
           search.started = true;
+          search.sorted = true;
         } else {
           const fresh = readable([...ids].filter(id => !search.shown.has(id)));
           if (fresh.length) {

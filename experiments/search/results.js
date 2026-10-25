@@ -270,13 +270,15 @@ var qolSearchResults = (() => {
     }
   }
 
-  // Switches the tab's message list to a search view that shows exactly `hdrs`. When the
-  // switch fails, the folder comes back and the error is thrown on.
-  function show(win, hdrs) {
+  // Switches the tab's message list to a search view that shows exactly `hdrs`, sorted
+  // newest first when `newestFirst` is set or the list switches now, otherwise as the
+  // user sorted it. When the switch fails, the folder comes back and the error is thrown on.
+  function show(win, hdrs, { newestFirst = false } = {}) {
     let state = activeState(win);
     const saved = state ? state.saved : saveFolderView(win);
+    const switching = !state;
     try {
-      if (!state) {
+      if (switching) {
         // Leaving the folder the way the folder pane does it (mark-read-on-leave and so on).
         win.gViewWrapper?.close();
         const wrapper = new win.DBViewWrapper(win.dbViewWrapperListener);
@@ -287,8 +289,14 @@ var qolSearchResults = (() => {
         connect(win, state);
       }
       setHits(win, state, hdrs);
+      if (newestFirst || switching) {
+        // Instead of the search view's own default, the order the hits arrive in. The
+        // view created next takes the sort over and keeps it for the hits added later.
+        state.wrapper._sort = [[win.Ci.nsMsgViewSortType.byDate, win.Ci.nsMsgViewSortOrder.descending]];
+      }
       // Re-creates the view, which fills itself with the hits.
       state.wrapper.searchFolders = folderList(hdrs);
+      win.threadPane?.restoreSortIndicator();
     } catch (e) {
       if (state) {
         forget(win, state);

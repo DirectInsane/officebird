@@ -697,6 +697,59 @@ test("hits arriving later are added to the list", async () => {
   }
 });
 
+// The hits in the order the list shows them.
+function rowOrder() {
+  const keys = [];
+  for (let i = 0; i < win.gDBView.rowCount; i++) {
+    keys.push(keyOf(win.gDBView.getMsgHdrAt(i)));
+  }
+  return keys;
+}
+
+test("results come newest first, also after a scope switch and later hits", async () => {
+  // Hits reported oldest first, held back until `release`.
+  let release = null;
+  await withRun(real => (w, q, opts, onProgress) => {
+    let final = null;
+    let held = true;
+    release = () => {
+      held = false;
+      onProgress({ ...final, allIds: new Set([...final.allIds].reverse()) });
+    };
+    return real(w, q, opts, state => {
+      if (!held) {
+        return onProgress(state);
+      }
+      if (!final) {
+        onProgress({ ...state, searching: true, folderIds: new Set([seeded(1)]), allIds: new Set([seeded(13), seeded(5)]) });
+      }
+      final = state;
+    });
+  }, async () => {
+    setText(fieldInput(), "from:alice");
+    key(fieldInput(), "Enter");
+    await waitFor(() => results.isActive(win) && win.gDBView.rowCount === 1, 10000);
+    await waitFor(() => release && scopeChip("all"));
+    scopeChip("all").click();
+    await waitFor(() => win.gDBView.rowCount === 2);
+    assertEqual(rowOrder(), [seeded(5), seeded(13)]);
+    release();
+    await waitFor(() => win.gDBView.rowCount === 4);
+    await sleep(100);
+    assertEqual(rowOrder(), [1, 5, 10, 13].map(seeded));
+  });
+  // The user's sort stays for this search, also in the other scope.
+  win.gViewWrapper.sort("dateCol", Ci.nsMsgViewSortOrder.ascending);
+  assertEqual(rowOrder(), [13, 10, 5, 1].map(seeded));
+  scopeChip("folder").click();
+  await waitFor(() => win.gDBView.rowCount === 2);
+  assertEqual(rowOrder(), [5, 1].map(seeded));
+  // A new search sorts newest first again.
+  const newest = JSON.stringify([1, 5].map(seeded));
+  await searchFor("from:alice");
+  await waitFor(() => JSON.stringify(rowOrder()) === newest);
+});
+
 test("a failed search run keeps the hits shown so far", async () => {
   await withRun(real => (w, q, opts, onProgress) => {
     const run = real(w, q, opts, state => onProgress({ ...state, searching: true }));
