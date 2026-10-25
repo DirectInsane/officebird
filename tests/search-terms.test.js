@@ -5,7 +5,7 @@ import vm from "node:vm";
 
 const context = {};
 vm.runInNewContext(readFileSync(new URL("../experiments/search/terms.js", import.meta.url), "utf8"), context);
-const { sessionTerm, glodaTerms, scopeFolders, matchFolders } = context.qolSearchTerms;
+const { sessionTerm, glodaTerms, scopeFolders, matchFolders, matchTags } = context.qolSearchTerms;
 
 const leaf = (field, value, extra = {}) => ({ field, value, negated: false, phrase: false, ...extra });
 const plain = (obj) => (obj === null ? null : { attrib: obj.attrib, op: obj.op, value: obj.value });
@@ -115,4 +115,46 @@ test("matchFolders falls back to account/name paths", () => {
 test("matchFolders returns an empty array without a match", () => {
   assert.deepEqual(Array.from(matchFolders(folders, "nothing")), []);
   assert.deepEqual(Array.from(matchFolders(folders, "")), []);
+});
+
+// Thunderbird's tags in the German UI, one of them renamed, and one of the user's own.
+const TAGS = [
+  { key: "$label1", tag: "Wichtig" },
+  { key: "$label2", tag: "Dienstlich" },
+  { key: "$label3", tag: "Familie" },
+  { key: "$label4", tag: "Zu erledigen" },
+  { key: "$label5", tag: "Später" },
+  { key: "projekt", tag: "Projekt X" },
+];
+
+test("matchTags: the display name, case-insensitively", () => {
+  assert.deepEqual([...matchTags(TAGS, "wichtig")], ["$label1"]);
+  assert.deepEqual([...matchTags(TAGS, "projekt x")], ["projekt"]);
+  assert.deepEqual([...matchTags(TAGS, "zu ERLEDIGEN")], ["$label4"]);
+});
+
+test("matchTags: the key", () => {
+  assert.deepEqual([...matchTags(TAGS, "$LABEL2")], ["$label2"]);
+  assert.deepEqual([...matchTags(TAGS, "projekt")], ["projekt"]);
+});
+
+test("matchTags: the default names of the default tags in English and German", () => {
+  assert.deepEqual([...matchTags(TAGS, "Important")], ["$label1"]);
+  assert.deepEqual([...matchTags(TAGS, "work")], ["$label2"]);
+  assert.deepEqual([...matchTags(TAGS, "Personal")], ["$label3"]);
+  assert.deepEqual([...matchTags(TAGS, "persönlich")], ["$label3"]);
+  assert.deepEqual([...matchTags(TAGS, "to do")], ["$label4"]);
+  assert.deepEqual([...matchTags(TAGS, "later")], ["$label5"]);
+});
+
+test("matchTags: a current name wins over a default name", () => {
+  const tags = [{ key: "$label1", tag: "Work" }, { key: "$label2", tag: "Office" }];
+  assert.deepEqual([...matchTags(tags, "work")], ["$label1"]);
+  assert.deepEqual([...matchTags(tags, "dienstlich")], ["$label2"]);
+});
+
+test("matchTags: a default name of a deleted default tag and unknown names match nothing", () => {
+  assert.deepEqual([...matchTags([{ key: "x", tag: "X" }], "important")], []);
+  assert.deepEqual([...matchTags(TAGS, "nosuchtag")], []);
+  assert.deepEqual([...matchTags(TAGS, "")], []);
 });

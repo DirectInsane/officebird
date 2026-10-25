@@ -376,6 +376,22 @@ test("tag names match case-insensitively and unknown tags match nothing", async 
   assertEqual(unknown.last.allIds.size, 0);
 });
 
+test("default tags match their default names in English and German", async () => {
+  for (const text of ["tag:Important", "schlagwort:wichtig", 'tag:"WICHTIG"']) {
+    const { last } = await search(text);
+    assertEqual(sortedIds(last.allIds), seededSet(6));
+  }
+  setText(fieldInput(), "schlagwort:Wichtig tag:important");
+  const panel = await openPanel();
+  try {
+    const tags = row(panel, "tags");
+    assert(!tags.querySelector('.qol-tag[data-key="$label1"]').classList.contains("off"), "the Important tag is off");
+    assertEqual(tags.querySelectorAll(".qol-chip:not(.qol-tag)").length, 0);
+  } finally {
+    panel.hidePopup();
+  }
+});
+
 test("before excludes the given day and after includes it", async () => {
   await withTempFolder("Search Dates", async folder => {
     // Local times around 2026-10-10; the search compares calendar days in local time.

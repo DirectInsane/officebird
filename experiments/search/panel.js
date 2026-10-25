@@ -315,8 +315,10 @@ var qolSearchPanel = (() => {
       const box = h("div", { class: "qol-panel-line" });
       renders.push(() => {
         const tags = MailServices.tags.getAllTags();
-        const known = (chip) =>
-          tags.find((tag) => [tag.tag.toLowerCase(), tag.key.toLowerCase()].includes(String(chip.value).toLowerCase()));
+        const known = (chip) => {
+          const [key] = qolSearchTerms.matchTags(tags, chip.value);
+          return tags.find((tag) => tag.key === key);
+        };
         const buttons = tags.map((tag) => {
           const chip = rows.tags.find((c) => known(c) === tag);
           const button = h("button", { class: "qol-chip qol-tag", type: "button", "data-key": tag.key }, tag.tag);

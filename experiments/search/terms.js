@@ -83,5 +83,31 @@ var qolSearchTerms = (() => {
     return matches.map((folder) => folder.uri);
   }
 
-  return { sessionTerm, glodaTerms, scopeFolders, matchFolders };
+  // Thunderbird's default names of its default tags, in English and German: a query
+  // written in one UI language still finds them in the other.
+  const DEFAULT_TAG_NAMES = {
+    $label1: ["important", "wichtig"],
+    $label2: ["work", "dienstlich"],
+    $label3: ["personal", "persönlich"],
+    $label4: ["to do", "zu erledigen"],
+    $label5: ["later", "später"],
+  };
+
+  // Tag name -> keys of the tags ({ key, tag }) it names, case-insensitively: the current
+  // name first, then the key, then a default name.
+  function matchTags(tags, name) {
+    const wanted = String(name).trim().toLowerCase();
+    if (!wanted) return [];
+    for (const named of [
+      (tag) => tag.tag.toLowerCase() === wanted,
+      (tag) => tag.key.toLowerCase() === wanted,
+      (tag) => Object.hasOwn(DEFAULT_TAG_NAMES, tag.key) && DEFAULT_TAG_NAMES[tag.key].includes(wanted),
+    ]) {
+      const matches = tags.filter(named);
+      if (matches.length) return matches.map((tag) => tag.key);
+    }
+    return [];
+  }
+
+  return { sessionTerm, glodaTerms, scopeFolders, matchFolders, matchTags };
 })();

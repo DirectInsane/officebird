@@ -73,15 +73,6 @@ var qolSearchEngine = (() => {
       .map((word) => word.toLowerCase() + "*");
   }
 
-  // Tag name (or key) -> tag keys; names compare case-insensitively.
-  function tagKeys(MailServices, name) {
-    const wanted = String(name).toLowerCase();
-    const tags = MailServices.tags.getAllTags();
-    const byName = tags.filter((tag) => tag.tag.toLowerCase() === wanted);
-    const matches = byName.length ? byName : tags.filter((tag) => tag.key.toLowerCase() === wanted);
-    return matches.map((tag) => tag.key);
-  }
-
   function run(win, query, opts, onProgress) {
     // The sandbox has no chrome globals of its own; the 3-pane window lends them.
     const { ChromeUtils, Components, Ci, Cc, Services } = win;
@@ -90,6 +81,7 @@ var qolSearchEngine = (() => {
     const { setTimeout, clearTimeout } = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");
     const msgWindow = win.msgWindow ?? win.top?.msgWindow ?? null;
     const terms = qolSearchTerms;
+    const tagKeys = (name) => terms.matchTags(MailServices.tags.getAllTags(), name);
     const sets = qolSearchSets;
 
     let cancelled = false;
@@ -183,7 +175,7 @@ var qolSearchEngine = (() => {
       // after: includes the given day, IsAfter starts the day after.
       if (term.attrib === "Date") values = [{ date: datePRTime(term.value, term.op === "IsAfter" ? -1 : 0) }];
       else if (term.attrib === "MsgStatus") values = [{ status: Ci.nsMsgMessageFlags[term.value] }];
-      else if (term.attrib === "Keywords") values = tagKeys(MailServices, term.value).map((key) => ({ str: key }));
+      else if (term.attrib === "Keywords") values = tagKeys(term.value).map((key) => ({ str: key }));
       else values = [{ str: term.value }];
       return values.map((fields) => {
         const searchTerm = session.createTerm();
