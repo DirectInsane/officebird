@@ -4,6 +4,7 @@
 var { ExtensionCommon } = ChromeUtils.importESModule("resource://gre/modules/ExtensionCommon.sys.mjs");
 var { ExtensionSupport } = ChromeUtils.importESModule("resource:///modules/ExtensionSupport.sys.mjs");
 var { MailServices } = ChromeUtils.importESModule("resource:///modules/MailServices.sys.mjs");
+var { MailUtils } = ChromeUtils.importESModule("resource:///modules/MailUtils.sys.mjs");
 var { MimeParser } = ChromeUtils.importESModule("resource:///modules/mimeParser.sys.mjs");
 var { MsgHdrToMimeMessage } = ChromeUtils.importESModule("resource:///modules/gloda/MimeMessage.sys.mjs");
 var { NetUtil } = ChromeUtils.importESModule("resource://gre/modules/NetUtil.sys.mjs");
@@ -43,6 +44,8 @@ const DEFAULT_CARD_GAP = 4;
 const GROUP_HEADER_FACTOR = 2.5;
 const GROUP_HEADER_MIN_PX = 26;
 const COLLAPSED_GROUPS_PROPERTY = "officebirdCollapsedGroups";
+const UPDATE_NOTICE = "officebird-update";
+const MESSENGER_URL = "chrome://messenger/content/messenger.xhtml";
 
 function log(...args) {
   console.warn("[qol]", ...args);
@@ -209,6 +212,9 @@ class QolState {
     this.watchedBrowsers = new Map(); // tab browser → load listener
     this.started = false;
     this.tornDown = false;
+    this.updateVersion = null;
+    this.updateTexts = null;
+    this.updateListening = false;
   }
 
   // Lifecycle
@@ -222,7 +228,7 @@ class QolState {
     if (!this.started) {
       this.started = true;
       ExtensionSupport.registerWindowListener(this.extension.id, {
-        chromeURLs: ["chrome://messenger/content/messenger.xhtml"],
+        chromeURLs: [MESSENGER_URL],
         onLoadWindow: win => this.watchMessengerWindow(win),
       });
       ExtensionSupport.registerWindowListener(`${this.extension.id}-reader`, {
@@ -283,6 +289,76 @@ class QolState {
     this.readers.clear();
     this.applySheet(null);
     this.listeners.clear();
+    this.removeUpdateNotices();
+  }
+
+  // Update notice: the update waits for the next start, the bar says so.
+
+  showUpdateNotice(version) {
+    if (this.tornDown) {
+      return;
+    }
+    const notice = loadAddonScript(this.extension, "experiments/qol/updatenotice.js").qolUpdateNotice;
+    this.updateVersion = String(version);
+    this.updateTexts = notice.texts(notice.pickLanguage(Services.locale.appLocaleAsBCP47), this.updateVersion);
+    if (this.updateListening) {
+      for (const win of Services.wm.getEnumerator("mail:3pane")) {
+        this.appendUpdateNotice(win);
+      }
+      return;
+    }
+    this.updateListening = true;
+    // Also runs for the main windows already open.
+    ExtensionSupport.registerWindowListener(`${this.extension.id}-update`, {
+      chromeURLs: [MESSENGER_URL],
+      onLoadWindow: win => this.appendUpdateNotice(win),
+    });
+  }
+
+  async appendUpdateNotice(win) {
+    try {
+      const box = win.specialTabs?.msgNotificationBar;
+      if (!box || !this.updateTexts) {
+        return;
+      }
+      const old = box.getNotificationWithValue(UPDATE_NOTICE);
+      if (old) {
+        box.removeNotification(old, true);
+      }
+      const { message, restart } = this.updateTexts;
+      const notification = await box.appendNotification(UPDATE_NOTICE, { label: message, priority: box.PRIORITY_INFO_MEDIUM }, [
+        {
+          label: restart,
+          // Asks about unsaved drafts like any quit; the bar stays if the restart is cancelled.
+          callback: () => {
+            MailUtils.restartApplication();
+            return true;
+          },
+        },
+      ]);
+      notification.dataset.version = this.updateVersion;
+    } catch (e) {
+      log("update notice not shown", e);
+    }
+  }
+
+  removeUpdateNotices() {
+    if (!this.updateListening) {
+      return;
+    }
+    this.updateListening = false;
+    ExtensionSupport.unregisterWindowListener(`${this.extension.id}-update`);
+    for (const win of Services.wm.getEnumerator("mail:3pane")) {
+      try {
+        const box = win.specialTabs?.msgNotificationBar;
+        const notification = box?.getNotificationWithValue(UPDATE_NOTICE);
+        if (notification) {
+          box.removeNotification(notification, true);
+        }
+      } catch (e) {
+        log("update notice not removed", e);
+      }
+    }
   }
 
   // Stylesheet
@@ -1582,6 +1658,7 @@ var qol = class extends ExtensionCommon.ExtensionAPI {
         applyViewToAllFolders: async mode => state.applyViewToAllFolders(mode === "threaded" ? "threaded" : "grouped"),
         listServers: async () => state.listServers(),
         sampleAuthResults: async (perFolder, serverKey) => state.sampleAuthResults(perFolder, serverKey),
+        showUpdateNotice: async version => state.showUpdateNotice(version),
         onCardsRendered: new ExtensionCommon.EventManager({
           context,
           name: "qol.onCardsRendered",

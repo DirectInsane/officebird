@@ -18,6 +18,20 @@ const RESULT_BATCH_MS = 30;
 const SAMPLES_PER_FOLDER = 50;
 const THUNDERBIRD_SETTINGS = ["listView", "markReadOnView", "unifiedFolders", "glodaIndex"];
 
+// With a listener registered, Thunderbird keeps an update for the next start instead of
+// swapping the experiments' privileged code while it runs. No runtime.reload() here.
+try {
+  browser.runtime.onUpdateAvailable.addListener(async ({ version }) => {
+    try {
+      await messenger.qol.showUpdateNotice(version);
+    } catch (e) {
+      console.warn("[qol] update notice not shown", e);
+    }
+  });
+} catch (e) {
+  console.warn("[qol] update notice unavailable", e);
+}
+
 async function loadStoredSettings() {
   const storage = browser.storage.local;
   const servers = await messenger.qol.listServers();

@@ -127,6 +127,18 @@
             ]
           }
         ]
+      },
+      {
+        "name": "showUpdateNotice",
+        "type": "function",
+        "async": true,
+        "description": "Shows a bar in every main window, and in main windows opened later, that the given version is installed when Thunderbird restarts, with a button that restarts it.",
+        "parameters": [
+          {
+            "name": "version",
+            "type": "string"
+          }
+        ]
       }
     ],
     "events": [

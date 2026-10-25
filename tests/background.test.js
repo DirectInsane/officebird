@@ -6,7 +6,7 @@ const event = () => {
   return { listeners, addListener: fn => listeners.push(fn) };
 };
 
-function stubs({ compose, qolUpdateConfig, storageSet } = {}) {
+function stubs({ compose, qolUpdateConfig, storageSet, showUpdateNotice, runtime } = {}) {
   const calls = [];
   const record = (name, result) => (...args) => {
     calls.push([name, ...args]);
@@ -20,6 +20,7 @@ function stubs({ compose, qolUpdateConfig, storageSet } = {}) {
       clearIcons: record("qol.clearIcons", undefined),
       setIcons: record("qol.setIcons", undefined),
       getFeatures: record("qol.getFeatures", { cards: true }),
+      showUpdateNotice: showUpdateNotice ?? record("qol.showUpdateNotice", undefined),
       onCardsRendered: event(),
     },
     storage: {
@@ -31,7 +32,7 @@ function stubs({ compose, qolUpdateConfig, storageSet } = {}) {
     },
     permissions: { contains: record("permissions.contains", false), onAdded: event(), onRemoved: event() },
     contacts: { onCreated: event(), onUpdated: event(), onDeleted: event() },
-    runtime: { onMessage: event() },
+    runtime: runtime ?? { onMessage: event(), onUpdateAvailable: event(), reload: record("runtime.reload", undefined) },
   };
   if (typeof compose === "function") {
     Object.defineProperty(api, "qolCompose", { get: compose });
@@ -148,4 +149,25 @@ test("a style set the ribbon makes the default is stored in the settings", async
   assert.equal(stored[1].settings.compose.ribbon, true, "the other settings stay");
   await onDefault("fancy");
   assert.equal(calls.findLast(([n, items]) => n === "storage.set" && items.settings)[1].settings.compose.styleSet, "default");
+});
+
+test("an available update shows the notice and is left for the next start", async () => {
+  const { api, calls } = stubs();
+  await loadBackground(api);
+  assert.equal(api.runtime.onUpdateAvailable.listeners.length, 1);
+  await api.runtime.onUpdateAvailable.listeners[0]({ version: "9.8.7" });
+  assert.deepEqual(calls.filter(([n]) => n === "qol.showUpdateNotice"), [["qol.showUpdateNotice", "9.8.7"]]);
+  assert.ok(!calls.some(([n]) => n === "runtime.reload"), "the update waits for the restart");
+});
+
+test("a failing update notice or a missing onUpdateAvailable leaves the rest working", async () => {
+  const failing = stubs({ showUpdateNotice: () => Promise.reject(new Error("no bar")) });
+  await loadBackground(failing.api);
+  await assert.doesNotReject(async () => failing.api.runtime.onUpdateAvailable.listeners[0]({ version: "1.0.0" }));
+  assert.ok(failing.calls.some(([n]) => n === "qol.init"));
+
+  const missing = stubs({ runtime: { onMessage: event() } });
+  await loadBackground(missing.api);
+  assert.ok(missing.calls.some(([n]) => n === "qol.init"), "the message list experiment starts");
+  assert.equal(missing.api.runtime.onMessage.listeners.length, 1);
 });

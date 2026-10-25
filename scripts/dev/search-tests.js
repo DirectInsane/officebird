@@ -4,6 +4,8 @@ const { MailServices } = ChromeUtils.importESModule("resource:///modules/MailSer
 const { setTimeout, clearTimeout } = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");
 const { ExtensionStorageIDB } = ChromeUtils.importESModule("resource://gre/modules/ExtensionStorageIDB.sys.mjs");
 const { NetUtil } = ChromeUtils.importESModule("resource://gre/modules/NetUtil.sys.mjs");
+const { AddonManager, AddonManagerPrivate } = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
+const { MailUtils } = ChromeUtils.importESModule("resource:///modules/MailUtils.sys.mjs");
 
 // Helpers
 
@@ -1548,6 +1550,163 @@ test("expanding groups in results does not write folder properties", async () =>
   results.end(win);
   await waitFor(() => win.gFolder?.URI === inbox.URI && !win.gViewWrapper.isSearch);
   assertEqual(info(), before);
+});
+
+// Update notice (qol experiment)
+
+const UPDATE_NOTICE = "officebird-update";
+
+function updateNotice(win = mainWindow) {
+  return win.specialTabs.msgNotificationBar.getNotificationWithValue(UPDATE_NOTICE);
+}
+
+function removeUpdateNotices() {
+  for (const win of Services.wm.getEnumerator("mail:3pane")) {
+    const notification = updateNotice(win);
+    if (notification) {
+      win.specialTabs.msgNotificationBar.removeNotification(notification, true);
+    }
+  }
+}
+
+// The bar's texts in Thunderbird's UI language, from the installed add-on.
+function updateTexts(version) {
+  const sandbox = Cu.Sandbox(Services.scriptSecurityManager.getSystemPrincipal(), { sandboxName: "update notice test" });
+  Cu.evalInSandbox(readAddonFile("experiments/qol/updatenotice.js"), sandbox, "latest", "updatenotice.js", 1);
+  const lib = sandbox.qolUpdateNotice;
+  return lib.texts(lib.pickLanguage(Services.locale.appLocaleAsBCP47), version);
+}
+
+function shownNotice(win = mainWindow) {
+  const notification = updateNotice(win);
+  return notification && {
+    message: notification.messageText.textContent.trim(),
+    buttons: [...notification.buttonContainer.children].map(button => button.getAttribute("label")),
+  };
+}
+
+// Fires the add-on's runtime.onUpdateAvailable the way the add-on manager does.
+function announceUpdate(version) {
+  const ext = WebExtensionPolicy.getByID(ADDON_ID).extension;
+  const before = ext.upgrade;
+  AddonManagerPrivate.getUpgradeListener(ADDON_ID)({ version, install() {} });
+  ext.upgrade = before;
+}
+
+// The installed add-on with another version in its manifest.
+function xpiWithVersion(version) {
+  const ext = WebExtensionPolicy.getByID(ADDON_ID).extension;
+  const installed = ext.rootURI.QueryInterface(Ci.nsIJARURI).JARFile.QueryInterface(Ci.nsIFileURL).file;
+  const file = Services.dirsvc.get("TmpD", Ci.nsIFile);
+  file.append("officebird-update-test.xpi");
+  file.createUnique(Ci.nsIFile.NORMAL_FILE_TYPE, 0o600);
+  file.remove(false);
+  installed.copyTo(file.parent, file.leafName);
+  const manifest = JSON.parse(readAddonFile("manifest.json"));
+  manifest.version = version;
+  const writer = Cc["@mozilla.org/zipwriter;1"].createInstance(Ci.nsIZipWriter);
+  writer.open(file, 0x04);
+  try {
+    writer.removeEntry("manifest.json", false);
+    const input = Cc["@mozilla.org/io/string-input-stream;1"].createInstance(Ci.nsIStringInputStream);
+    input.setUTF8Data(JSON.stringify(manifest));
+    writer.addEntryStream("manifest.json", Date.now() * 1000, Ci.nsIZipWriter.COMPRESSION_DEFAULT, input, false);
+  } finally {
+    writer.close();
+  }
+  return file;
+}
+
+function readAddonFile(path) {
+  const ext = WebExtensionPolicy.getByID(ADDON_ID).extension;
+  const channel = NetUtil.newChannel({ uri: ext.rootURI.resolve(path), loadUsingSystemPrincipal: true });
+  const stream = channel.open();
+  try {
+    return NetUtil.readInputStreamToString(stream, stream.available(), { charset: "UTF-8" });
+  } finally {
+    stream.close();
+  }
+}
+
+test("an update waits for the restart and the bar says so", async () => {
+  assert(AddonManagerPrivate.hasUpgradeListener(ADDON_ID), "no runtime.onUpdateAvailable listener");
+  const ext = WebExtensionPolicy.getByID(ADDON_ID).extension;
+  const version = (await AddonManager.getAddonByID(ADDON_ID)).version;
+  const upgradeBefore = ext.upgrade;
+  const file = xpiWithVersion("99.0.0");
+  let install = null;
+  try {
+    install = await AddonManager.getInstallForFile(file);
+    const postponed = new Promise(resolve => install.addListener({ onInstallPostponed: resolve }));
+    install.install();
+    await postponed;
+    assertEqual(install.state, AddonManager.STATE_POSTPONED);
+    await waitFor(() => shownNotice(), 5000);
+    assertEqual(shownNotice(), { message: updateTexts("99.0.0").message, buttons: [updateTexts("99.0.0").restart] });
+    assertEqual((await AddonManager.getAddonByID(ADDON_ID)).version, version);
+    assert(WebExtensionPolicy.getByID(ADDON_ID).extension === ext, "the running add-on was replaced");
+    assertEqual(ext.version, version);
+  } finally {
+    if (install?.state === AddonManager.STATE_POSTPONED) {
+      install.cancel();
+    }
+    ext.upgrade = upgradeBefore;
+    file.exists() && file.remove(false);
+    removeUpdateNotices();
+  }
+  assertEqual((await AddonManager.getAddonByID(ADDON_ID)).version, version);
+});
+
+test("the update bar closes, follows new main windows and shows the newest version", async () => {
+  let second = null;
+  try {
+    announceUpdate("9.9.1");
+    await waitFor(() => shownNotice()?.message === updateTexts("9.9.1").message);
+    announceUpdate("9.9.2");
+    await waitFor(() => shownNotice()?.message === updateTexts("9.9.2").message);
+    assertEqual(mainWindow.specialTabs.msgNotificationBar.allNotifications.filter(n => n.getAttribute("value") === UPDATE_NOTICE).length, 1);
+
+    updateNotice().shadowRoot.querySelector(".close").click();
+    await waitFor(() => !updateNotice());
+
+    second = Services.ww.openWindow(null, "chrome://messenger/content/messenger.xhtml", "_blank", "chrome,dialog=no,all", null);
+    await waitFor(() => shownNotice(second)?.message === updateTexts("9.9.2").message, 15000);
+    assert(!updateNotice(), "the closed bar came back");
+
+    announceUpdate("9.9.3");
+    await waitFor(() => shownNotice()?.message === updateTexts("9.9.3").message);
+    await waitFor(() => shownNotice(second)?.message === updateTexts("9.9.3").message);
+  } finally {
+    second?.close();
+    removeUpdateNotices();
+  }
+});
+
+test("Restart now restarts Thunderbird the normal way", async () => {
+  const original = MailUtils.restartApplication;
+  const calls = [];
+  // Safety net: should the fake not be used, the restart is refused.
+  const veto = {
+    observe(subject, topic, data) {
+      calls.push(`requested:${data}`);
+      subject.QueryInterface(Ci.nsISupportsPRBool).data = true;
+    },
+  };
+  Services.obs.addObserver(veto, "quit-application-requested");
+  MailUtils.restartApplication = () => calls.push("restart");
+  try {
+    announceUpdate("9.9.4");
+    await waitFor(() => shownNotice()?.message === updateTexts("9.9.4").message);
+    [...updateNotice().buttonContainer.children][0].click();
+    await waitFor(() => calls.length);
+    await sleep(100);
+    assertEqual(calls, ["restart"]);
+    assert(updateNotice(), "the bar stays until Thunderbird restarts");
+  } finally {
+    MailUtils.restartApplication = original;
+    Services.obs.removeObserver(veto, "quit-application-requested");
+    removeUpdateNotices();
+  }
 });
 
 // Runner

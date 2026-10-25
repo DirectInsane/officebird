@@ -72,7 +72,18 @@ try {
         : `const { AddonManager } = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
            const { FileUtils } = ChromeUtils.importESModule("resource://gre/modules/FileUtils.sys.mjs");
            const install = await AddonManager.getInstallForFile(new FileUtils.File(${JSON.stringify(arg)}));
-           await install.install();
+           const postponed = new Promise(resolve => install.addListener({ onInstallPostponed: () => resolve(true) }));
+           const installed = install.install();
+           // A running Officebird keeps updates for the next start (runtime.onUpdateAvailable);
+           // a dev build goes in right away, as runtime.reload() would do it.
+           if (await Promise.race([installed.then(() => false), postponed])) {
+             const upgrade = WebExtensionPolicy.getByID(install.addon.id)?.extension?.upgrade;
+             if (!upgrade) {
+               throw new Error("install postponed without an upgrade to resume");
+             }
+             upgrade.install();
+             await installed;
+           }
            const addon = await AddonManager.getAddonByID(install.addon.id);
            return { id: addon.id, version: addon.version, active: addon.isActive, error: install.error || null };`;
     const result = await client

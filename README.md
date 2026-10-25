@@ -59,7 +59,7 @@ Requires Thunderbird 153 or later on Windows, macOS or Linux.
 To build it yourself instead, run `scripts/build.sh`; the file lands in `dist/officebird.xpi`.
 
 > [!NOTE]
-> Thunderbird installs new versions by itself. Restart it after an update: it keeps the add-on's privileged code loaded until then.
+> Thunderbird downloads new versions by itself. Officebird then shows a bar that a new version is ready; it is installed at the next restart, since Thunderbird keeps the add-on's privileged code loaded until then.
 
 > [!TIP]
 > The [Clean themes](https://github.com/bakatamas/thunderbird-clean-themes) by [bakatamas](https://github.com/bakatamas) go well with Officebird.
