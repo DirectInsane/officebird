@@ -1325,6 +1325,95 @@ test("hits added to sorted results are drawn at their rows", async () => {
   rowsOpenTheirMail();
 });
 
+// A local folder under Search Test with mails from alice; removed afterwards by its name
+// from wherever it went.
+async function withAliceFolder(name, count, fn) {
+  const folder = testRoot.QueryInterface(Ci.nsIMsgLocalMailFolder).createLocalSubfolder(name).QueryInterface(Ci.nsIMsgLocalMailFolder);
+  for (let i = 0; i < count; i++) {
+    folder.addMessage(
+      [`From: Alice Example <alice@example.org>`, `Subject: ${name} ${i}`, `Date: Mon, 19 Oct 2026 1${i}:00:00 +0000`, `Message-ID: <${name.replace(/\W/g, "")}-${i}@example.org>`, ``, `Text ${i} ${"x".repeat(2000)}`, ``].join("\r\n")
+    );
+  }
+  const trash = MailServices.accounts.localFoldersServer.rootFolder.getFolderWithFlags(Ci.nsMsgFolderFlags.Trash);
+  try {
+    await fn(folder);
+  } finally {
+    // Deleting moves a folder to the trash first.
+    for (const parent of [testRoot, trash, trash]) {
+      for (const child of [...(parent?.subFolders ?? [])]) {
+        if (child.name.startsWith(name)) {
+          child.deleteSelf(null);
+        }
+      }
+    }
+  }
+}
+
+function aliceKeys(folder) {
+  return hdrs(folder).map(keyOf);
+}
+
+test("deleting the folder shown before the search ends the search", async () => {
+  await withAliceFolder("Search Gone", 1, async folder => {
+    await openFolder(folder);
+    await searchFor("from:alice");
+    assertEqual(shownKeys(), aliceKeys(folder));
+    scopeChip("all").click();
+    await waitFor(() => win.gDBView?.rowCount === 5);
+    const errors = await consoleErrors(async () => {
+      folder.deleteSelf(null);
+      await waitFor(() => !results.isActive(win));
+      await waitFor(() => !chipRow() || chipRow().hidden);
+      assert(!headerText().startsWith(label("results")), `the header reads ${headerText()}`);
+      assert(!win.gDBView || win.gFolder, "a list without its folder");
+      // The field and the folder pane work as before.
+      await openFolder(inbox);
+      await searchFor("from:bob");
+      assertEqual(shownKeys(), seededSet(2, 6));
+      key(fieldInput(), "Escape");
+      await waitFor(() => !results.isActive(win));
+      await openFolder(archive);
+    });
+    assertEqual(errors, []);
+  });
+});
+
+test("renaming a folder that has hits keeps the search", async () => {
+  await withAliceFolder("Search Named", 2, async folder => {
+    await searchFor("from:alice");
+    scopeChip("all").click();
+    await settlesOn([...seededSet(1, 5, 10, 13), ...aliceKeys(folder)]);
+    const errors = await consoleErrors(async () => {
+      folder.rename("Search Named Again", null);
+      const renamed = await waitFor(() => testRoot.getChildNamed("Search Named Again"));
+      await settlesOn([...seededSet(1, 5, 10, 13), ...aliceKeys(renamed)]);
+      assert(results.isActive(win), "the search ended");
+      assertEqual(scopeChip("all").textContent, `${label("allMailboxes")} · 6`);
+      rowsOpenTheirMail();
+    });
+    assertEqual(errors, []);
+  });
+});
+
+test("compacting a folder that has hits keeps the search", async () => {
+  await withAliceFolder("Search Compact", 4, async folder => {
+    // Deleted mails leave space for the compaction to reclaim.
+    folder.deleteMessages(hdrs(folder).slice(2), null, true, false, null, false);
+    await searchFor("from:alice");
+    scopeChip("all").click();
+    await settlesOn([...seededSet(1, 5, 10, 13), ...aliceKeys(folder)]);
+    const errors = await consoleErrors(async () => {
+      await new Promise((resolve, reject) =>
+        folder.compact({ OnStartRunningUrl() {}, OnStopRunningUrl: (url, status) => (Components.isSuccessCode(status) ? resolve() : reject(new Error(`compact failed: ${status}`))) }, null)
+      );
+      await settlesOn([...seededSet(1, 5, 10, 13), ...aliceKeys(folder)]);
+      assert(results.isActive(win), "the search ended");
+      rowsOpenTheirMail();
+    });
+    assertEqual(errors, []);
+  });
+});
+
 // Message list integration (qol experiment)
 
 let qolLib = null;

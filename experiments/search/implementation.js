@@ -79,6 +79,24 @@ var qolSearch = (() => {
       this.panes = new Map();
       this.lastMailTab = null;
       this.closedTabs = new WeakSet();
+      // Old URIs of folders changed since the last check, which runs once they are done.
+      this.changedFolders = new Set();
+      const changed = folder => {
+        if (!this.changedFolders.size) {
+          win.setTimeout(() => {
+            const uris = [...this.changedFolders];
+            this.changedFolders.clear();
+            this.foldersChanged(uris);
+          });
+        }
+        this.changedFolders.add(folder.URI);
+      };
+      this.folderListener = {
+        QueryInterface: ChromeUtils.generateQI(["nsIMsgFolderListener"]),
+        folderDeleted: changed,
+        folderMoveCopyCompleted: (move, folder) => move && changed(folder),
+        folderRenamed: changed,
+      };
       this.originalFocus = null;
       this.onKeyDown = event => this.handleKeyDown(event);
       this.tabMonitor = {
@@ -128,6 +146,13 @@ var qolSearch = (() => {
         this.lastMailTab = current;
       }
       win.gTabmail.registerTabMonitor(this.tabMonitor);
+      const notifications = Ci.nsIMsgFolderNotificationService;
+      MailServices.mfn.addListener(
+        this.folderListener,
+        notifications.folderDeleted |
+          notifications.folderMoveCopyCompleted |
+          notifications.folderRenamed
+      );
     }
 
     destroy() {
@@ -138,6 +163,11 @@ var qolSearch = (() => {
         log("search not ended", e);
       }
       this.observer?.disconnect();
+      try {
+        MailServices.mfn.removeListener(this.folderListener);
+      } catch (e) {
+        // Not added.
+      }
       win.removeEventListener("keydown", this.onKeyDown, true);
       if (this.originalFocus && win.QuickSearchFocus === this.quickSearchFocus) {
         win.QuickSearchFocus = this.originalFocus;
@@ -307,21 +337,26 @@ var qolSearch = (() => {
     // Searching
 
     search(text, scope) {
-      const { qolSearchQuery, qolSearchEngine } = this.libs;
-      const query = qolSearchQuery.parse(text);
+      const query = this.libs.qolSearchQuery.parse(text);
       if (!query.or.length) {
         this.end();
         return;
       }
       const tab = this.searchTab();
-      const pane = tab && paneOf(tab);
-      if (!pane) {
+      if (!paneOf(tab)) {
         log("no mail tab to show results in");
         return;
       }
+      this.panel.setQuery(text);
+      this.runSearch(tab, text, query, scope, { counted: true });
+    }
+
+    // Runs `query` for the list of `tab`. A counted search counts for the tip; a fresh one
+    // replaces the hits shown so far, whose mails may have changed.
+    runSearch(tab, text, query, scope, { counted = false, fresh = false } = {}) {
+      const pane = paneOf(tab);
       const state = this.tabState(tab);
       state.text = text;
-      this.panel.setQuery(text);
       this.watchPane(pane);
       const criteria = this.criteria(query);
       if (criteria.some(terms => terms.some(term => term.blocking))) {
@@ -341,10 +376,13 @@ var qolSearch = (() => {
       const search = {
         tab,
         pane,
+        text,
         scope,
+        // The folder shown before the search, which the folder scope stands for.
+        folderURI: pane.gFolder?.URI ?? null,
         sets: { folder: new Set(), all: new Set() },
-        shown: previous?.shown ?? new Set(),
-        started: previous?.started ?? false,
+        shown: (!fresh && previous?.shown) || new Set(),
+        started: !fresh && (previous?.started ?? false),
         searching: true,
         notices: [],
         // Notice kind -> the notice shown instead (null: none), after its cause changed
@@ -356,9 +394,13 @@ var qolSearch = (() => {
         criteria,
       };
       state.search = search;
-      this.panel.setScope(scope);
-      Services.prefs.setIntPref(TIP_PREF, Services.prefs.getIntPref(TIP_PREF, 0) + 1);
-      const run = qolSearchEngine.run(pane, query, { current: pane.gFolder, scopeDefault: scope }, progress => this.progress(search, progress));
+      if (this.isCurrent(tab)) {
+        this.panel.setScope(scope);
+      }
+      if (counted) {
+        Services.prefs.setIntPref(TIP_PREF, Services.prefs.getIntPref(TIP_PREF, 0) + 1);
+      }
+      const run = this.libs.qolSearchEngine.run(pane, query, { current: pane.gFolder, scopeDefault: scope }, progress => this.progress(search, progress));
       search.run = run;
       if (!this.isShown(search)) {
         // Ended while it reported for the first time.
@@ -372,6 +414,25 @@ var qolSearch = (() => {
           this.render(search);
         }
       });
+    }
+
+    // After folders were renamed, moved or deleted (`uris`: their old URIs). Thunderbird
+    // closes the list of a folder that is gone, which ends its search. A search with hits
+    // in a changed folder runs again, since their mails have new addresses. (Compacting
+    // keeps message keys, so it needs nothing.)
+    foldersChanged(uris) {
+      const touched = uri => Boolean(uri) && uris.some(changed => uri === changed || uri.startsWith(changed + "/"));
+      const results = this.libs.qolSearchResults;
+      for (const [tab, { search }] of [...this.tabs]) {
+        if (!search) {
+          continue;
+        }
+        if (search.started && !results.isActive(search.pane)) {
+          this.endSearch(search);
+        } else if (touched(search.folderURI) || [...search.shown].some(id => touched(id.slice(0, id.lastIndexOf("#"))))) {
+          this.runSearch(tab, search.text, this.libs.qolSearchQuery.parse(search.text), search.scope, { fresh: true });
+        }
+      }
     }
 
     isShown(search) {
