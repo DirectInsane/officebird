@@ -680,6 +680,35 @@ test("a cross-field OR shows as a read-only group, the other terms in their rows
   }
 });
 
+// Whether `element` takes space in the open panel.
+function rendered(element) {
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+test("the open panel shows the kept line and the tags or only when needed", async () => {
+  setText(fieldInput(), printed("from:alice rechnung"));
+  let panel = await openPanel();
+  try {
+    const kept = row(panel, "kept");
+    assert(rendered(row(panel, "from").querySelector(".qol-panel-label")), "the From label takes no space");
+    assert(![...kept.children].some(rendered), "the empty kept line takes space");
+    assert(!rendered(row(panel, "tags").querySelector(".qol-row-or")), "the Tags row shows or");
+  } finally {
+    panel.hidePopup();
+    await waitFor(() => panel.state === "closed");
+  }
+  const name = MailServices.tags.getTagForKey("$label1");
+  setText(fieldInput(), `from:alice OR is:unread tag:"${name}" OR tag:$label2`);
+  panel = await openPanel();
+  try {
+    assert([...row(panel, "kept").children].every(rendered), "the kept line takes no space");
+    assert(rendered(row(panel, "tags").querySelector(".qol-row-or")), "the Tags row hides its or");
+  } finally {
+    panel.hidePopup();
+  }
+});
+
 test("editing the panel keeps an OR group of flags", async () => {
   const text = "has:attachment OR is:unread";
   const expected = (await search(text)).last;
