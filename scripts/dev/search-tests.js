@@ -1251,6 +1251,33 @@ function rowsOpenTheirMail() {
   }
 }
 
+// The custom terms the Search Messages and saved search dialogs offer for a folder:
+// searchWidgets.js lists those available in the dialog's scope.
+function offeredCustomTerms() {
+  const scopes = [Ci.nsMsgSearchScope.offlineMail, Ci.nsMsgSearchScope.onlineManual, Ci.nsMsgSearchScope.localNews, Ci.nsMsgSearchScope.onlineMail];
+  return MailServices.filters
+    .getCustomTerms()
+    .filter(term => scopes.some(scope => term.getAvailable(scope, null)))
+    .map(term => term.id);
+}
+
+test("the search's own term is not offered in Thunderbird's search dialogs", async () => {
+  const own = () => offeredCustomTerms().filter(id => id.startsWith("officebird"));
+  assertEqual(own(), []);
+  await searchFor("from:alice OR from:erin");
+  assertEqual(own(), []);
+  win.quickFilterBar._showFilterBar(true);
+  try {
+    win.document.getElementById("qfb-starred").click();
+    await settlesOn(seededSet(7));
+    assertEqual(own(), []);
+  } finally {
+    win.quickFilterBar._showFilterBar(false);
+  }
+  await settlesOn(seededSet(1, 5, 7));
+  assertEqual(own(), []);
+});
+
 test("quick filter toggled while results show", async () => {
   // A starred mail in the hits' folder that is not a hit.
   const other = seededHdr(8);

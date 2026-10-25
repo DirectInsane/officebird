@@ -19,38 +19,43 @@ var qolSearchResults = (() => {
     return hdr.folder.URI + "#" + hdr.messageKey;
   }
 
-  // Token -> ids of the hits shown under it. Thunderbird keeps custom terms until it
-  // quits, so a term registered before (by an earlier load of the add-on) is used again.
-  function hitSets(win) {
+  // The hit term, registered once: Thunderbird keeps custom terms until it quits, so a
+  // term registered by an earlier load of the add-on is taken over. It is available only
+  // while one of our views starts its search, so the search and filter dialogs, which
+  // list the custom terms available for their folders, never offer it.
+  function hitTerm(win) {
     const { Ci } = win;
     const { MailServices } = win.ChromeUtils.importESModule("resource:///modules/MailServices.sys.mjs");
     const registered = MailServices.filters.getCustomTerm(HIT_TERM_ID);
-    if (registered) {
-      return (registered.wrappedJSObject ?? registered).hits;
-    }
+    const term = registered ? (registered.wrappedJSObject ?? registered) : { id: HIT_TERM_ID, hits: new Map(), starting: 0 };
     const offline = [Ci.nsMsgSearchScope.offlineMail, Ci.nsMsgSearchScope.onlineManual, Ci.nsMsgSearchScope.localNews];
-    const term = {
-      id: HIT_TERM_ID,
+    Object.assign(term, {
       name: "Officebird search hit",
       needsBody: false,
-      hits: new Map(),
-      // Not offered in the filter and search dialogs.
       getEnabled: () => false,
       // Never sent to a server: hits of an IMAP folder are matched on its local copy.
-      getAvailable: scope => offline.includes(scope),
+      getAvailable: scope => term.starting > 0 && offline.includes(scope),
       getAvailableOperators(scope, length) {
         if (length) {
           length.value = 1;
         }
         return [Ci.nsMsgSearchOp.Is];
       },
+      // Token -> ids of the hits shown under it.
       match(msgHdr, token) {
         return Boolean(term.hits.get(token)?.has(idOf(msgHdr)));
       },
-    };
-    term.wrappedJSObject = term;
-    MailServices.filters.addCustomTerm(term);
-    return term.hits;
+    });
+    term.starting ??= 0;
+    if (!registered) {
+      term.wrappedJSObject = term;
+      MailServices.filters.addCustomTerm(term);
+    }
+    return term;
+  }
+
+  function hitSets(win) {
+    return hitTerm(win).hits;
   }
 
   function activeState(win) {
@@ -191,7 +196,7 @@ var qolSearchResults = (() => {
     enqueue(win, state, state.hdrs);
   }
 
-  function hitTerm(win, session, token) {
+  function sessionHitTerm(win, session, token) {
     const { Ci } = win;
     const term = session.createTerm();
     const value = term.value;
@@ -214,7 +219,7 @@ var qolSearchResults = (() => {
     spec.updateSession = function () {
       // The slot of a saved search's terms, which a search view leaves empty: its terms
       // come first and are checked for what a server can search.
-      this._virtualFolderTerms = [hitTerm(win, this.session, state.token)];
+      this._virtualFolderTerms = [sessionHitTerm(win, this.session, state.token)];
       try {
         updateSession.call(this);
       } finally {
@@ -222,7 +227,14 @@ var qolSearchResults = (() => {
       }
     };
     spec.associateView = function (dbView) {
-      associateView.call(this, dbView);
+      // Here the search session checks its terms and starts.
+      const term = hitTerm(win);
+      term.starting++;
+      try {
+        associateView.call(this, dbView);
+      } finally {
+        term.starting--;
+      }
       if (!this.hasSearchTerms && states.get(win) === state) {
         fill(win, state, dbView);
       }
