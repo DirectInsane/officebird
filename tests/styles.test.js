@@ -247,3 +247,11 @@ test("reading pane: initials use the list's color and an unverified sender gets 
 test("reading pane: no reader avatar rules without icons", () => {
   assert.doesNotMatch(buildStylesheet({ ...DEFAULT_CFG, iconsEnabled: false }), /qol-reader-avatar/);
 });
+
+test("the card delete button shows on hover and stays hidden for mail marked deleted", () => {
+  const css = buildStylesheet(DEFAULT_CFG);
+  assert.match(css, /\.qol-delete\s*\{[^}]*background:[^;]*var\(--icon-trash-sm\)/);
+  assert.match(css, /:root #threadTree tr\.card-layout \.qol-delete\s*\{\s*opacity:\s*0;/);
+  assert.match(css, /:root #threadTree tr\.card-layout:is\(:hover, \.selected\) \.qol-delete\s*\{[^}]*opacity/);
+  assert.match(css, /\[data-properties~="imapdeleted"\] \.qol-delete\s*\{[^}]*display:\s*none/);
+});

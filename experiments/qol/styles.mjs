@@ -45,6 +45,37 @@ export function buildStylesheet(config) {
 }`);
   }
 
+  // Card delete button (cardmenu.js), drawn like the star and the message menu next to it.
+  rules.push(`.qol-delete {
+  appearance: none;
+  inline-size: 16px;
+  block-size: 16px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent var(--icon-trash-sm) center / 16px no-repeat;
+  -moz-context-properties: fill, stroke;
+  fill: currentColor;
+  stroke: currentColor;
+  cursor: pointer;
+}
+/* Thunderbird gives every card button 70 % opacity; ":root #threadTree" outranks it. */
+:root #threadTree tr.card-layout .qol-delete {
+  opacity: 0;
+}
+:root #threadTree tr.card-layout:is(:hover, .selected) .qol-delete {
+  opacity: 0.55;
+}
+:root #threadTree tr.card-layout .qol-delete:hover {
+  opacity: 1;
+  color: var(--tree-row-delete-button-color);
+}
+[data-properties~="imapdeleted"] .qol-delete {
+  display: none;
+}`);
+
   if (iconsEnabled) {
     // Thunderbird's card is a two-column grid (read status | content); the avatar adds a third.
     rules.push(`.card-container:has(> .qol-avatar) {

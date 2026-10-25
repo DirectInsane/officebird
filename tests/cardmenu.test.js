@@ -6,7 +6,7 @@ import vm from "node:vm";
 // Classic script; the experiment runs it in a sandbox, so do the same.
 const context = {};
 vm.runInNewContext(readFileSync(new URL("../experiments/qol/cardmenu.js", import.meta.url), "utf8"), context);
-const { place } = context.qolCardMenu;
+const { place, addDelete } = context.qolCardMenu;
 
 // querySelector supports only ".a > .b" and ".a".
 function node(className, children = []) {
@@ -31,7 +31,15 @@ function node(className, children = []) {
       child.parentElement = this;
       child.moves++;
     },
+    attributes: {},
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+    ownerDocument: { createElement: () => node("") },
     querySelector(selector) {
+      if (selector.includes(",")) {
+        return selector.split(",").map(s => this.querySelector(s.trim())).find(Boolean) ?? null;
+      }
       const [parent, own] = selector.includes(">") ? selector.split(">").map(s => s.trim().slice(1)) : [null, selector.slice(1)];
       const walk = e => e.children.flatMap(c => [c, ...walk(c)]);
       return walk(this).find(e => e.className.split(" ").includes(own) &&
@@ -93,4 +101,28 @@ test("a card without the menu or the star is left alone", () => {
   detach(c.star);
   assert.equal(place(c.root, true), false);
   assert.deepEqual(names(c.senderRow), ["sender", "date", "button"]);
+});
+
+test("a delete button goes in front of the star", () => {
+  const c = card();
+  assert.equal(addDelete(c.root), true);
+  assert.deepEqual(names(c.info), ["attachment-icon", "button-spam", "button-flat", "button-star"]);
+  const button = c.info.children[2];
+  assert.ok(button.className.split(" ").includes("tree-button-request-delete"), "Thunderbird's list deletes on this class");
+  assert.equal(button.attributes["data-l10n-id"], "threadpane-column-header-delete");
+});
+
+test("with the menu beside the star, the order is delete, menu, star", () => {
+  const c = card();
+  place(c.root, true);
+  addDelete(c.root);
+  place(c.root, true);
+  assert.deepEqual(names(c.info), ["attachment-icon", "button-spam", "button-flat", "button", "button-star"]);
+});
+
+test("adding the delete button again adds nothing", () => {
+  const c = card();
+  addDelete(c.root);
+  addDelete(c.root);
+  assert.equal(c.info.children.filter(e => e.className.includes("qol-delete")).length, 1);
 });

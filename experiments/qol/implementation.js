@@ -465,7 +465,7 @@ class QolState {
       for (const restore of restores.reverse()) {
         restore();
       }
-      for (const el of win.document.querySelectorAll(".qol-avatar, .qol-preview, .qol-read-toggle")) {
+      for (const el of win.document.querySelectorAll(".qol-avatar, .qol-preview, .qol-read-toggle, .qol-delete")) {
         el.remove();
       }
       for (const card of win.document.querySelectorAll(".card-container")) {
@@ -860,6 +860,12 @@ class QolState {
     const isRow = card.classList.contains("table-layout");
     if (!isRow) {
       this.cardMenu?.place(card, Boolean(this.config?.style?.outlook));
+      if (hdr) {
+        this.cardMenu?.addDelete(card);
+      } else {
+        // Cards are reused; group headers get no delete button.
+        card.querySelector(".qol-delete")?.remove();
+      }
     }
     if (!hdr || !this.config) {
       card.querySelector(".qol-avatar")?.remove();
