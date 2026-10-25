@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "Officebird",
   "description": "Outlook-style message list and compose ribbon: verified sender logos, preview lines, compact date groups, formatting ribbon with style sets.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "DirectInsane",
   "icons": {
     "32": "images/icon.svg",
