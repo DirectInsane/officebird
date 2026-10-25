@@ -17,8 +17,11 @@ var qolSearchPanel = (() => {
     ["subject", "subject", "phWords"],
     ["body", "contains", "phWords"],
   ];
-  // Rows key -> query field, for the "or" marker of a query the panel cannot show.
-  const ROW_FIELDS = { from: "from", to: "to", subject: "subject", body: "body", folder: "in", tags: "tag" };
+  // Rows key -> query fields, for the "or" marker of an OR the row cannot show.
+  const ROW_FIELDS = {
+    from: ["from"], to: ["to"], subject: ["subject"], body: ["body"], date: ["after", "before"],
+    folder: ["in"], tags: ["tag"], flags: ["attachment", "unread", "flagged"],
+  };
   const FLAGS = [
     ["attachment", "attachments"],
     ["unread", "unread"],
@@ -27,7 +30,7 @@ var qolSearchPanel = (() => {
   const SUGGESTIONS = 8;
 
   function emptyRows() {
-    return qolSearchPanelModel.rowsFromQuery({ or: [] });
+    return qolSearchPanelModel.rowsFromQuery({ and: [] });
   }
 
   function hasCriteria(rows) {
@@ -275,11 +278,20 @@ var qolSearchPanel = (() => {
       return suggest ? h("div", { class: "qol-panel-field" }, box, suggestions) : box;
     }
 
+    // Marks a row whose terms take part in an OR it cannot show: one across fields, or
+    // one between tags, whose buttons have no "or" between them.
+    function orMarker(key) {
+      const marker = h("span", { class: "qol-row-or", hidden: "hidden" }, text("or"));
+      renders.push(() => {
+        const cross = ROW_FIELDS[key].some((field) => rows.crossOr.includes(field));
+        marker.hidden = !(cross || (key === "tags" && rows.tags.some((chip) => chip.orBefore)));
+      });
+      return marker;
+    }
+
     // The row's two grid cells, in a wrapper that does not take part in the layout.
     function rowElement(key, labelKey, control) {
-      const marker = h("span", { class: "qol-row-or", hidden: "hidden" }, text("or"));
-      const label = h("span", { class: "qol-panel-label" }, text(labelKey), " ", marker);
-      if (ROW_FIELDS[key]) renders.push(() => (marker.hidden = !rows.crossOr.includes(ROW_FIELDS[key])));
+      const label = h("span", { class: "qol-panel-label" }, text(labelKey), " ", orMarker(key));
       return h("div", { class: "qol-panel-row", "data-row": key }, label, control);
     }
 
@@ -390,8 +402,7 @@ var qolSearchPanel = (() => {
         })
       ),
       rowElement("tags", "tags", tagsControl()),
-      h("span", { class: "qol-panel-label" }),
-      flagsControl(),
+      h("div", { class: "qol-panel-row", "data-row": "flags" }, h("span", { class: "qol-panel-label" }, orMarker("flags")), flagsControl()),
       h("span", { class: "qol-panel-label" }),
       scopeControl(),
       tip,
@@ -458,20 +469,20 @@ var qolSearchPanel = (() => {
       return node;
     }
 
-    // `groups` are the query's alternatives, each a list of { text, error } terms.
+    // `groups` are the query's OR groups, each a list of { text, error } terms.
     function criteriaElement(rowDoc, groups) {
       const node = el(rowDoc, "span", { class: "qol-search-criteria" });
-      groups.forEach((terms, index) => {
-        if (index > 0) node.append(el(rowDoc, "span", { class: "qol-search-or" }, text("or")));
-        for (const term of terms) {
+      for (const terms of groups) {
+        terms.forEach((term, index) => {
+          if (index > 0) node.append(el(rowDoc, "span", { class: "qol-search-or" }, text("or")));
           const chip = el(rowDoc, "span", { class: "qol-chip" }, term.text);
           if (term.error) {
             chip.classList.add("error");
             chip.title = term.error;
           }
           node.append(chip);
-        }
-      });
+        });
+      }
       return node;
     }
 

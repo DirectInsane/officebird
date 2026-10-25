@@ -128,8 +128,8 @@ var qolSearchEngine = (() => {
     function combined() {
       const shown = new Map(leafSets);
       const view = {
-        or: query.or.map((conjunction) =>
-          conjunction.map((leaf) => {
+        and: query.and.map((group) =>
+          group.map((leaf) => {
             const key = sets.leafKey(leaf);
             if (!leaf.negated || !pending.has(key)) return leaf;
             shown.set(sets.leafKey({ field: "pending", value: key }), universe);
@@ -373,8 +373,8 @@ var qolSearchEngine = (() => {
     // Each leaf once, keyed like qolSearchSets; "in:" and invalid dates take no part.
     function distinctLeaves(field) {
       const leaves = new Map();
-      for (const conjunction of query.or) {
-        for (const leaf of conjunction) {
+      for (const group of query.and) {
+        for (const leaf of group) {
           if (leaf.error || leaf.field === "in" || (field === "body") !== (leaf.field === "body")) continue;
           const key = sets.leafKey(leaf);
           if (!leaves.has(key)) leaves.set(key, leaf);
@@ -387,7 +387,7 @@ var qolSearchEngine = (() => {
       const { infos, byUri } = allFolders(MailServices, Ci);
       const chosen = [];
       const excluded = [];
-      for (const leaf of query.or.flat().filter((leaf) => leaf.field === "in" && !leaf.error)) {
+      for (const leaf of query.and.flat().filter((leaf) => leaf.field === "in" && !leaf.error)) {
         const uris = terms.matchFolders(infos, leaf.value);
         if (!uris.length) {
           searching = false;
@@ -424,11 +424,7 @@ var qolSearchEngine = (() => {
         pending.add(sets.leafKey(leaf));
       }
 
-      const combinable = (leaf) => !leaf.error && leaf.field !== "in";
-      const needsUniverse = query.or.some(
-        (conjunction) => conjunction.some((leaf) => combinable(leaf) && leaf.negated) || !conjunction.some(combinable)
-      );
-      if (needsUniverse) await enumerateUniverse(folders);
+      if (sets.needsUniverse(query)) await enumerateUniverse(folders);
       if (cancelled) return;
 
       // The last leaf's report is the final one below.

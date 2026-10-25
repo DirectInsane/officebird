@@ -361,6 +361,13 @@ test("OR and minus combine", async () => {
   assertEqual(sortedIds(last.allIds), seededSet(1, 2, 5, 10, 11, 13));
 });
 
+test("OR binds tighter than AND", async () => {
+  const { last } = await search("from:alice OR from:bob subject:Notiz");
+  assertEqual(sortedIds(last.allIds), seededSet(11));
+  const groups = await search("from:alice OR from:bob subject:Rechnung OR subject:Archivierte");
+  assertEqual(sortedIds(groups.last.allIds), seededSet(2, 10, 11));
+});
+
 test("tag names match case-insensitively and unknown tags match nothing", async () => {
   const name = MailServices.tags.getTagForKey("$label1");
   const { last } = await search(`tag:"${name.toUpperCase()}"`);
@@ -607,6 +614,42 @@ test("the panel keeps a query it cannot show unless it is edited", async () => {
   assertEqual(fieldInput().value, text);
   await waitFor(() => results.isActive(win) && !chipRow().querySelector(".qol-searching:not([hidden])"), 10000);
   assertEqual(shownKeys(), seededSet(1, 2, 5));
+});
+
+// The rows whose "or" marker shows.
+function orMarkedRows(panel) {
+  return [...panel.querySelectorAll(".qol-row-or:not([hidden])")].map(marker => marker.closest("[data-row]").dataset.row);
+}
+
+function flagState(panel, flag) {
+  return panel.querySelector(`.qol-flag[data-flag="${flag}"]`).dataset.state;
+}
+
+test("the panel shows an OR group of one field and the terms after it", async () => {
+  setText(fieldInput(), "from:alice OR from:bob subject:Rechnung -is:unread");
+  const panel = await openPanel();
+  try {
+    assertEqual([...row(panel, "from").querySelectorAll(".qol-chip")].map(chip => chip.textContent), ["alice", "bob"]);
+    assertEqual(row(panel, "from").querySelectorAll(".qol-chip-gap.or").length, 1);
+    assertEqual(row(panel, "subject").querySelectorAll(".qol-chip").length, 1);
+    assertEqual(orMarkedRows(panel), []);
+    assertEqual(flagState(panel, "unread"), "no");
+  } finally {
+    panel.hidePopup();
+  }
+});
+
+test("a cross-field OR marks only its own rows", async () => {
+  setText(fieldInput(), "from:alice OR is:unread subject:Rechnung has:attachment");
+  const panel = await openPanel();
+  try {
+    assertEqual(orMarkedRows(panel), ["from", "flags"]);
+    assertEqual(row(panel, "from").querySelectorAll(".qol-chip-gap.or").length, 0);
+    assertEqual(flagState(panel, "unread"), "any");
+    assertEqual(flagState(panel, "attachment"), "yes");
+  } finally {
+    panel.hidePopup();
+  }
 });
 
 test("chip click switches scope without new search", async () => {

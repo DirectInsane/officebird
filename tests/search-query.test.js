@@ -12,41 +12,59 @@ const leaf = (field, value, extra = {}) => ({ field, value, negated: false, phra
 // Objects from the vm context have another prototype; compare as plain data.
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
+// A query is a conjunction of OR groups: { and: [[leaf, ...], ...] }.
+const terms = (q) => plain(q.and).flat();
+
 test("a keyword and a bare word", () => {
   assert.deepEqual(plain(parse("from:matt invoice")), {
-    or: [[leaf("from", "matt"), leaf("body", "invoice")]],
+    and: [[leaf("from", "matt")], [leaf("body", "invoice")]],
   });
 });
 
 test("German keywords", () => {
   const q = parse("von:matt betreff:Angebot hat:anhang ist:ungelesen ist:markiert schlagwort:wichtig");
-  assert.deepEqual(plain(q.or[0]).map((l) => l.field),
+  assert.deepEqual(terms(q).map((l) => l.field),
     ["from", "subject", "attachment", "unread", "flagged", "tag"]);
-  assert.deepEqual(plain(q.or[0]).map((l) => l.value),
+  assert.deepEqual(terms(q).map((l) => l.value),
     ["matt", "Angebot", true, true, true, "wichtig"]);
 });
 
 test("remaining keywords in both languages", () => {
   const q = parse("to:a an:b in:Inbox after:2026-01-02 nach:2026-01-03 before:2026-01-04 vor:2026-01-05");
-  assert.deepEqual(plain(q.or[0]).map((l) => l.field),
+  assert.deepEqual(terms(q).map((l) => l.field),
     ["to", "to", "in", "after", "after", "before", "before"]);
 });
 
 test("keywords are case-insensitive, values keep their case", () => {
-  assert.deepEqual(plain(parse("FROM:Matt")), { or: [[leaf("from", "Matt")]] });
-  assert.equal(parse("Has:Attachment").or[0][0].field, "attachment");
+  assert.deepEqual(plain(parse("FROM:Matt")), { and: [[leaf("from", "Matt")]] });
+  assert.equal(parse("Has:Attachment").and[0][0].field, "attachment");
 });
 
-test("OR and ODER split conjunctions, lowercase or is a word", () => {
-  const expected = { or: [[leaf("body", "a"), leaf("body", "b")], [leaf("body", "c")]] };
+test("OR and ODER bind tighter than AND, lowercase or is a word", () => {
+  const expected = { and: [[leaf("body", "a")], [leaf("body", "b"), leaf("body", "c")]] };
   assert.deepEqual(plain(parse("a b OR c")), expected);
   assert.deepEqual(plain(parse("a b ODER c")), expected);
-  assert.deepEqual(plain(parse("a or c")), { or: [[leaf("body", "a"), leaf("body", "or"), leaf("body", "c")]] });
+  assert.deepEqual(plain(parse("a or c")), { and: [[leaf("body", "a")], [leaf("body", "or")], [leaf("body", "c")]] });
+});
+
+test("OR groups: alternatives and the terms after them", () => {
+  assert.deepEqual(plain(parse("von:alice OR von:bob rechnung")), {
+    and: [[leaf("from", "alice"), leaf("from", "bob")], [leaf("body", "rechnung")]],
+  });
+  assert.deepEqual(plain(parse("a OR b c OR d")), {
+    and: [[leaf("body", "a"), leaf("body", "b")], [leaf("body", "c"), leaf("body", "d")]],
+  });
+  assert.deepEqual(plain(parse("a OR b OR c")), {
+    and: [[leaf("body", "a"), leaf("body", "b"), leaf("body", "c")]],
+  });
+  assert.deepEqual(plain(parse("-from:a OR subject:b")), {
+    and: [[leaf("from", "a", { negated: true }), leaf("subject", "b")]],
+  });
 });
 
 test("minus negates words, keywords and flags", () => {
   const q = parse("-newsletter -from:amazon -is:unread");
-  assert.deepEqual(plain(q.or[0]), [
+  assert.deepEqual(terms(q), [
     leaf("body", "newsletter", { negated: true }),
     leaf("from", "amazon", { negated: true }),
     leaf("unread", true, { negated: true }),
@@ -55,41 +73,40 @@ test("minus negates words, keywords and flags", () => {
 
 test("quoted phrases", () => {
   const q = parse('"exact phrase" x');
-  assert.deepEqual(plain(q.or[0][0]), leaf("body", "exact phrase", { phrase: true }));
-  assert.deepEqual(plain(q.or[0][1]), leaf("body", "x"));
+  assert.deepEqual(terms(q), [leaf("body", "exact phrase", { phrase: true }), leaf("body", "x")]);
 });
 
 test("quoted values for in: and tag:", () => {
   const q = parse('in:"My Folder" tag:"to do" -in:"A B"');
-  assert.deepEqual(plain(q.or[0]).map((l) => [l.field, l.value, l.negated]),
+  assert.deepEqual(terms(q).map((l) => [l.field, l.value, l.negated]),
     [["in", "My Folder", false], ["tag", "to do", false], ["in", "A B", true]]);
 });
 
 test("dates in both formats", () => {
-  assert.equal(parse("after:2026-10-01").or[0][0].value, "2026-10-01");
-  assert.equal(parse("nach:1.10.2026").or[0][0].value, "2026-10-01");
-  assert.equal(parse("before:01.10.2026").or[0][0].value, "2026-10-01");
+  assert.equal(parse("after:2026-10-01").and[0][0].value, "2026-10-01");
+  assert.equal(parse("nach:1.10.2026").and[0][0].value, "2026-10-01");
+  assert.equal(parse("before:01.10.2026").and[0][0].value, "2026-10-01");
 });
 
 test("invalid dates keep their text and carry an error", () => {
-  const l = plain(parse("before:32.13.2026").or[0][0]);
+  const l = plain(parse("before:32.13.2026").and[0][0]);
   assert.equal(l.field, "before");
   assert.equal(l.error, "date");
   assert.equal(l.raw, "32.13.2026");
-  assert.equal(plain(parse("after:2026-02-30").or[0][0]).error, "date");
+  assert.equal(plain(parse("after:2026-02-30").and[0][0]).error, "date");
 });
 
 test("unknown keywords and unknown flag values are text", () => {
-  assert.deepEqual(plain(parse("foo:bar")), { or: [[leaf("body", "foo:bar")]] });
-  assert.deepEqual(plain(parse("has:foo")), { or: [[leaf("body", "has:foo")]] });
-  assert.deepEqual(plain(parse("from:")), { or: [[leaf("body", "from:")]] });
+  assert.deepEqual(plain(parse("foo:bar")), { and: [[leaf("body", "foo:bar")]] });
+  assert.deepEqual(plain(parse("has:foo")), { and: [[leaf("body", "has:foo")]] });
+  assert.deepEqual(plain(parse("from:")), { and: [[leaf("body", "from:")]] });
 });
 
 test("empty text and stray OR", () => {
-  assert.deepEqual(plain(parse("")), { or: [] });
-  assert.deepEqual(plain(parse("   \t ")), { or: [] });
-  assert.deepEqual(plain(parse("a OR")), { or: [[leaf("body", "a")]] });
-  assert.deepEqual(plain(parse("OR a OR OR b")), { or: [[leaf("body", "a")], [leaf("body", "b")]] });
+  assert.deepEqual(plain(parse("")), { and: [] });
+  assert.deepEqual(plain(parse("   \t ")), { and: [] });
+  assert.deepEqual(plain(parse("a OR")), { and: [[leaf("body", "a")]] });
+  assert.deepEqual(plain(parse("OR a OR OR b")), { and: [[leaf("body", "a"), leaf("body", "b")]] });
 });
 
 test("print uses the keywords of the language", () => {
@@ -100,6 +117,8 @@ test("print uses the keywords of the language", () => {
     "von:a an:b betreff:c in:d nach:2026-01-01 vor:2026-02-01 schlagwort:e hat:anhang ist:ungelesen ist:markiert");
   assert.equal(print(parse("a OR b"), "de"), "a ODER b");
   assert.equal(print(parse("a ODER b"), "en"), "a OR b");
+  assert.equal(print(parse("von:alice  ODER von:bob rechnung"), "en"), "from:alice OR from:bob rechnung");
+  assert.equal(print(parse("a OR b c OR d"), "de"), "a ODER b c ODER d");
   assert.equal(print(parse("nach:1.10.2026"), "en"), "after:2026-10-01");
 });
 
@@ -124,6 +143,10 @@ const INPUTS = [
   "foo:bar",
   "from:",
   "a OR",
+  "a OR b c OR d",
+  "von:alice OR von:bob rechnung ist:ungelesen",
+  "-from:a OR subject:b OR is:flagged c",
+  "OR a OR OR b",
   "",
   "--x - \"OR\" a\"b",
   '"from:matt"',
@@ -139,7 +162,7 @@ test("round trip: parse(print(parse(x))) equals parse(x)", () => {
 
 test("inherited object property names are not flag values", () => {
   for (const x of ["has:constructor", "is:toString", "is:__proto__"]) {
-    assert.deepEqual(plain(parse(x)), { or: [[leaf("body", x)]] }, x);
+    assert.deepEqual(plain(parse(x)), { and: [[leaf("body", x)]] }, x);
     assert.deepEqual(plain(parse(print(parse(x), "en"))), plain(parse(x)), x);
   }
 });

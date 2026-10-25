@@ -112,20 +112,23 @@ var qolSearchQuery = (() => {
     return { field: "body", value: token.quoted ? token.prefix + token.text : token.text, negated, phrase: false };
   }
 
+  // { and: [group, ...] }: every group must match, a group when one of its leaves does.
+  // OR binds tighter than AND, like Gmail: "a OR b c" is (a OR b) AND c.
   function parse(text) {
-    const or = [];
-    let group = [];
-    const flush = () => { if (group.length) or.push(group); group = []; };
+    const and = [];
+    let joinNext = false;
     for (const token of tokenize(String(text ?? ""))) {
       if (!token.quoted && !token.negated && (token.text === "OR" || token.text === "ODER")) {
-        flush();
+        joinNext = and.length > 0;
         continue;
       }
       const leaf = leafFromToken(token);
-      if (leaf) group.push(leaf);
+      if (!leaf) continue;
+      if (joinNext) and[and.length - 1].push(leaf);
+      else and.push([leaf]);
+      joinNext = false;
     }
-    flush();
-    return { or };
+    return { and };
   }
 
   function quote(value) {
@@ -143,7 +146,7 @@ var qolSearchQuery = (() => {
 
   function print(query, lang) {
     const words = PRINT[lang] || PRINT.en;
-    return query.or.map((group) => group.map((leaf) => printLeaf(leaf, words)).join(" ")).join(` ${words.or} `);
+    return query.and.map((group) => group.map((leaf) => printLeaf(leaf, words)).join(` ${words.or} `)).join(" ");
   }
 
   return { parse, print };

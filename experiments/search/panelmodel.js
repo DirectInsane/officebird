@@ -2,7 +2,7 @@
 "use strict";
 
 var qolSearchPanelModel = (() => {
-  // Query field -> rows key, in the order queryFromRows writes the leaves of a conjunction.
+  // Query field -> rows key, in the order queryFromRows writes the groups.
   const CHIP_ROWS = { from: "from", to: "to", subject: "subject", body: "body", in: "folder", tag: "tags" };
   const DATE_ROWS = { after: "after", before: "before" };
   const FLAG_ROWS = { attachment: "attachment", unread: "unread", flagged: "flagged" };
@@ -26,13 +26,12 @@ var qolSearchPanelModel = (() => {
     return leaf;
   }
 
-  // An OR the panel can show is one whose conjunctions only hold chips of a single field:
-  // the chips then read as one row, with orBefore starting each further alternative.
-  function crossFields(groups) {
-    if (groups.length < 2) return [];
-    const fields = new Set(groups.flat().map((leaf) => leaf.field));
-    if (fields.size === 1 && Object.hasOwn(CHIP_ROWS, [...fields][0])) return [];
-    return FIELD_ORDER.filter((field) => fields.has(field));
+  // An OR group the panel can show holds chips of a single field: they read as one row,
+  // with orBefore joining a chip to the one before it. The fields of any other OR group
+  // are listed in crossOr; such a group's flags and dates are not shown, since they do
+  // not apply to every result.
+  function isCrossGroup(group) {
+    return group.length > 1 && !(Object.hasOwn(CHIP_ROWS, group[0].field) && group.every((leaf) => leaf.field === group[0].field));
   }
 
   function rowsFromQuery(query) {
@@ -40,54 +39,53 @@ var qolSearchPanelModel = (() => {
       from: [], to: [], subject: [], body: [], folder: [], tags: [],
       after: null, before: null, attachment: "any", unread: "any", flagged: "any", crossOr: [],
     };
-    const groups = query.or;
-    rows.crossOr = crossFields(groups);
-    groups.forEach((group) => {
+    const crossFields = new Set();
+    for (const group of query.and) {
+      const cross = isCrossGroup(group);
       group.forEach((leaf, index) => {
+        if (cross) crossFields.add(leaf.field);
         if (Object.hasOwn(CHIP_ROWS, leaf.field)) {
-          const row = rows[CHIP_ROWS[leaf.field]];
-          row.push(chipFromLeaf(leaf, index === 0 && row.length > 0 && !rows.crossOr.length));
+          rows[CHIP_ROWS[leaf.field]].push(chipFromLeaf(leaf, index > 0 && !cross));
+        } else if (cross) {
+          // Shown only by the row's "or" marker.
         } else if (Object.hasOwn(DATE_ROWS, leaf.field)) {
           rows[DATE_ROWS[leaf.field]] = chipFromLeaf(leaf, false);
         } else if (Object.hasOwn(FLAG_ROWS, leaf.field)) {
           rows[FLAG_ROWS[leaf.field]] = leaf.negated ? "no" : "yes";
         }
       });
-    });
+    }
+    rows.crossOr = FIELD_ORDER.filter((field) => crossFields.has(field));
     return rows;
   }
 
-  // Alternatives of one chip row: orBefore starts a new conjunction.
-  function alternatives(field, chips) {
-    const result = [];
+  // The OR groups of one chip row: orBefore joins a chip to the group before it.
+  function groupsOf(field, chips) {
+    const groups = [];
     for (const chip of chips) {
-      if (chip.orBefore || !result.length) result.push([]);
-      result[result.length - 1].push(leafFromChip(field, chip));
+      if (!chip.orBefore || !groups.length) groups.push([]);
+      groups[groups.length - 1].push(leafFromChip(field, chip));
     }
-    return result;
+    return groups;
   }
 
-  // Rows are ANDed across fields; ORs within a row expand to every combination.
+  // Rows are ANDed, and so are the groups within a row.
   function queryFromRows(rows) {
-    let combos = [[]];
-    const add = (options) => {
-      if (!options.length) return;
-      combos = combos.flatMap((combo) => options.map((option) => combo.concat(option)));
-    };
+    const and = [];
     for (const field of FIELD_ORDER) {
       if (Object.hasOwn(CHIP_ROWS, field)) {
-        add(alternatives(field, rows[CHIP_ROWS[field]]));
+        and.push(...groupsOf(field, rows[CHIP_ROWS[field]]));
       } else if (Object.hasOwn(DATE_ROWS, field)) {
         const chip = rows[DATE_ROWS[field]];
-        if (chip) add([[leafFromChip(field, chip)]]);
+        if (chip) and.push([leafFromChip(field, chip)]);
       } else {
         const state = rows[FLAG_ROWS[field]];
         if (state === "yes" || state === "no") {
-          add([[{ field, value: true, negated: state === "no", phrase: false }]]);
+          and.push([{ field, value: true, negated: state === "no", phrase: false }]);
         }
       }
     }
-    return { or: combos.filter((combo) => combo.length) };
+    return { and };
   }
 
   return { rowsFromQuery, queryFromRows };

@@ -338,7 +338,7 @@ var qolSearch = (() => {
 
     search(text, scope) {
       const query = this.libs.qolSearchQuery.parse(text);
-      if (!query.or.length) {
+      if (!query.and.length) {
         this.end();
         return;
       }
@@ -449,13 +449,13 @@ var qolSearch = (() => {
       return infos;
     }
 
-    // The query's alternatives as printed terms; invalid dates and unknown folders carry
+    // The query's OR groups as printed terms; invalid dates and unknown folders carry
     // their error, and an unknown folder blocks the search.
     criteria(query) {
       const { qolSearchQuery, qolSearchTerms, qolSearchLabels } = this.libs;
-      const hasFolder = query.or.some(terms => terms.some(leaf => leaf.field === "in"));
+      const hasFolder = query.and.some(terms => terms.some(leaf => leaf.field === "in"));
       const infos = hasFolder ? this.folderInfos() : [];
-      return query.or.map(terms =>
+      return query.and.map(terms =>
         terms.map(leaf => {
           const unknown = leaf.field === "in" && !leaf.error && !qolSearchTerms.matchFolders(infos, leaf.value).length;
           let error = null;
@@ -464,13 +464,13 @@ var qolSearch = (() => {
           } else if (unknown) {
             error = qolSearchLabels.label(this.lang, "unknownFolder", { name: leaf.value });
           }
-          return { text: qolSearchQuery.print({ or: [[leaf]] }, this.lang), error, blocking: unknown };
+          return { text: qolSearchQuery.print({ and: [[leaf]] }, this.lang), error, blocking: unknown };
         })
       );
     }
 
     folderLabel(pane, query) {
-      const chosen = query.or.flat().find(leaf => leaf.field === "in" && !leaf.negated && !leaf.error);
+      const chosen = query.and.flat().find(leaf => leaf.field === "in" && !leaf.negated && !leaf.error);
       return chosen ? chosen.value : pane.gFolder?.localizedName ?? "";
     }
 
