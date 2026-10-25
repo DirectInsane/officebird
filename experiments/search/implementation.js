@@ -1,5 +1,5 @@
-// Privileged code: it reads only Thunderbird's message databases and full-text index and
-// never touches the network.
+// Privileged code: it reads Thunderbird's message databases and full-text index; the
+// only network access is the IMAP server search of folders without an offline copy.
 "use strict";
 
 var { ExtensionCommon } = ChromeUtils.importESModule("resource://gre/modules/ExtensionCommon.sys.mjs");

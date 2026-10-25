@@ -6,7 +6,7 @@ var qolSearchSets = (() => {
     return leaf.field + "\u0000" + leaf.value;
   }
 
-  // "in:" leaves narrow the scope and error leaves match nothing; neither takes part here.
+  // "in:" leaves narrow the scope and error leaves are skipped; neither takes part here.
   function isCombinable(leaf) {
     return !leaf.error && leaf.field !== "in";
   }
