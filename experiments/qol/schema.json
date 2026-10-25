@@ -84,25 +84,30 @@
         ]
       },
       {
-        "name": "getListView",
+        "name": "getThunderbirdSettings",
         "type": "function",
         "async": true,
-        "description": "Thunderbird's message list view: \"cards\" or \"table\".",
+        "description": "Thunderbird's own settings shown on the options page: listView (\"cards\" or \"table\"), markReadOnView and unifiedFolders.",
         "parameters": []
       },
       {
-        "name": "setListView",
+        "name": "setThunderbirdSetting",
         "type": "function",
         "async": true,
-        "description": "Switches Thunderbird's message list view (mail.threadpane.listview).",
+        "description": "Changes one of Thunderbird's own settings.",
         "parameters": [
           {
-            "name": "view",
+            "name": "name",
             "type": "string",
             "enum": [
-              "cards",
-              "table"
+              "listView",
+              "markReadOnView",
+              "unifiedFolders"
             ]
+          },
+          {
+            "name": "value",
+            "type": "any"
           }
         ]
       },

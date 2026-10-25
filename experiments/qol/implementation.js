@@ -7,6 +7,7 @@ var { MailServices } = ChromeUtils.importESModule("resource:///modules/MailServi
 var { MimeParser } = ChromeUtils.importESModule("resource:///modules/mimeParser.sys.mjs");
 var { MsgHdrToMimeMessage } = ChromeUtils.importESModule("resource:///modules/gloda/MimeMessage.sys.mjs");
 var { NetUtil } = ChromeUtils.importESModule("resource://gre/modules/NetUtil.sys.mjs");
+var { XULStoreUtils } = ChromeUtils.importESModule("resource:///modules/XULStoreUtils.sys.mjs");
 var { setTimeout, clearTimeout, setInterval, clearInterval } = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");
 
 const MAX_ENTRIES = 5000;
@@ -30,6 +31,7 @@ const PREVIEW_GAP_PX = 6;
 const TABLE_PREVIEW_GAP_PX = 4;
 const DATE_REFRESH_MS = 60000;
 const LIST_VIEW_PREF = "mail.threadpane.listview";
+const MARK_READ_PREF = "mailnews.mark_message_read.auto";
 const MESSAGE_WINDOW_URL = "chrome://messenger/content/messageWindow.xhtml";
 // Defaults Thunderbird uses for folders it hasn't stored a view for yet.
 const DEFAULT_VIEW_FLAGS_PREF = "mailnews.default_view_flags";
@@ -832,6 +834,55 @@ class QolState {
     }
   }
 
+  // Thunderbird's own settings, changed where Thunderbird keeps them.
+
+  getThunderbirdSettings() {
+    return {
+      // View > Message List > Cards / Table (0 = cards, 1 = table).
+      listView: Services.prefs.getIntPref(LIST_VIEW_PREF, 0) === 1 ? "table" : "cards",
+      // Settings > Reading & Display > Automatically mark messages as read.
+      markReadOnView: Services.prefs.getBoolPref(MARK_READ_PREF, true),
+      unifiedFolders: this.folderModes()[0] === "smart",
+    };
+  }
+
+  setThunderbirdSetting(name, value) {
+    if (name === "listView") {
+      Services.prefs.setIntPref(LIST_VIEW_PREF, value === "table" ? 1 : 0);
+    } else if (name === "markReadOnView") {
+      Services.prefs.setBoolPref(MARK_READ_PREF, Boolean(value));
+    } else if (name === "unifiedFolders") {
+      this.setUnifiedFolders(Boolean(value));
+    }
+  }
+
+  // Folder pane modes as in its ⋯ menu, top to bottom; "smart" is Unified Folders.
+  folderModes() {
+    const value = XULStoreUtils.getValue("messenger", "folderTree", "mode");
+    return value ? value.split(",") : ["all"];
+  }
+
+  setUnifiedFolders(on) {
+    const modes = this.folderModes().filter(mode => mode !== "smart");
+    if (on) {
+      modes.unshift("smart");
+    }
+    // Each tab has its own folder pane; the setter also stores the modes for new ones.
+    let applied = false;
+    for (const win of Services.wm.getEnumerator("mail:3pane")) {
+      for (const tab of win.gTabmail?.tabInfo ?? []) {
+        const folderPane = tab.mode?.name === "mail3PaneTab" ? tab.chromeBrowser?.contentWindow?.folderPane : null;
+        if (folderPane) {
+          folderPane.activeModes = modes;
+          applied = true;
+        }
+      }
+    }
+    if (!applied) {
+      XULStoreUtils.setValue("messenger", "folderTree", "mode", (modes.length ? modes : ["all"]).join(","));
+    }
+  }
+
   applyViewToAllFolders(mode) {
     const F = Ci.nsMsgViewFlagsType;
     const target = mode === "grouped" ? F.kThreadedDisplay | F.kGroupBySort : F.kThreadedDisplay;
@@ -1468,9 +1519,8 @@ var qol = class extends ExtensionCommon.ExtensionAPI {
         setIcons: async map => state.setIcons(map),
         clearIcons: async () => state.clearIcons(),
         getFeatures: async () => ({ ...state.features }),
-        // Same pref as View > Message List > Cards / Table (0 = cards, 1 = table).
-        getListView: async () => (Services.prefs.getIntPref(LIST_VIEW_PREF, 0) === 1 ? "table" : "cards"),
-        setListView: async view => Services.prefs.setIntPref(LIST_VIEW_PREF, view === "table" ? 1 : 0),
+        getThunderbirdSettings: async () => state.getThunderbirdSettings(),
+        setThunderbirdSetting: async (name, value) => state.setThunderbirdSetting(name, value),
         applyViewToAllFolders: async mode => state.applyViewToAllFolders(mode === "threaded" ? "threaded" : "grouped"),
         listServers: async () => state.listServers(),
         sampleAuthResults: async (perFolder, serverKey) => state.sampleAuthResults(perFolder, serverKey),

@@ -60,8 +60,8 @@
             <p>Same as View → Message List in Thunderbird.</p>
           </div>
           <div class="segmented" role="radiogroup" aria-label="Message list view">
-            <label><input type="radio" name="listView" value="cards" data-no-setting /><span>Cards</span></label>
-            <label><input type="radio" name="listView" value="table" data-no-setting /><span>Table</span></label>
+            <label><input type="radio" name="listView" value="cards" data-thunderbird /><span>Cards</span></label>
+            <label><input type="radio" name="listView" value="table" data-thunderbird /><span>Table</span></label>
           </div>
         </div>
         <div class="panel-body">
@@ -145,6 +145,20 @@
               <div class="hint">Groups like "Today" or "Last 7 Days" open expanded in every folder. Groups you collapse stay collapsed in that folder.</div>
             </div>
             <input type="checkbox" class="switch" name="style.expandGroups" aria-label="Expand groups" />
+          </div>
+          <div class="setting">
+            <div>
+              <div class="label">Mark as read when shown</div>
+              <div class="hint">Mail turns read as soon as it appears in the reading pane. Same as Settings → Reading &amp; Display in Thunderbird, where you can also set a delay.</div>
+            </div>
+            <input type="checkbox" class="switch" name="markReadOnView" data-thunderbird aria-label="Mark as read when shown" />
+          </div>
+          <div class="setting">
+            <div>
+              <div class="label">Unified folders on top</div>
+              <div class="hint">Inbox, Drafts, Sent, Spam and the other special folders of all accounts together, above the accounts. Thunderbird's own Unified Folders view (⋯ in the folder pane).</div>
+            </div>
+            <input type="checkbox" class="switch" name="unifiedFolders" data-thunderbird aria-label="Unified folders on top" />
           </div>
           <div class="setting">
             <div>

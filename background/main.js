@@ -16,6 +16,7 @@ import { initialsFor, colorFor } from "../experiments/qol/avatar.mjs";
 const BIMI_ORIGINS = { origins: ["https://*/*"] };
 const RESULT_BATCH_MS = 30;
 const SAMPLES_PER_FOLDER = 50;
+const THUNDERBIRD_SETTINGS = ["listView", "markReadOnView", "unifiedFolders"];
 
 async function loadStoredSettings() {
   const storage = browser.storage.local;
@@ -172,10 +173,13 @@ browser.runtime.onMessage.addListener(async message => {
       };
     case "listServers":
       return messenger.qol.listServers();
-    case "getListView":
-      return messenger.qol.getListView();
-    case "setListView":
-      return messenger.qol.setListView(message.view === "table" ? "table" : "cards");
+    case "getThunderbirdSettings":
+      return messenger.qol.getThunderbirdSettings();
+    case "setThunderbirdSetting":
+      if (!THUNDERBIRD_SETTINGS.includes(message.name)) {
+        return undefined;
+      }
+      return messenger.qol.setThunderbirdSetting(message.name, message.name === "listView" ? message.value : Boolean(message.value));
     case "applyViewToAllFolders":
       return messenger.qol.applyViewToAllFolders(message.mode === "threaded" ? "threaded" : "grouped");
     case "detectAuthservIds": {

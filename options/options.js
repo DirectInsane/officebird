@@ -30,9 +30,10 @@ const servers = (await ask({ type: "listServers" })).filter(
   server => !HIDDEN_SERVER_TYPES.includes(server.type)
 );
 
-// data-no-setting marks Thunderbird's own controls (the view switch).
+// data-thunderbird marks Thunderbird's own settings, data-no-setting helper controls;
+// neither is stored with the add-on's settings.
 function fields() {
-  return [...form.querySelectorAll("[name]:not([data-no-setting])")];
+  return [...form.querySelectorAll("[name]:not([data-no-setting]):not([data-thunderbird])")];
 }
 
 function getPath(object, path) {
@@ -217,7 +218,7 @@ function syncTones(target) {
 }
 
 form.addEventListener("input", event => {
-  if (event.target.name === "listView") {
+  if (event.target.dataset.thunderbird !== undefined) {
     return;
   }
   syncTones(event.target);
@@ -226,8 +227,9 @@ form.addEventListener("input", event => {
 });
 
 form.addEventListener("change", async event => {
-  if (event.target.name === "listView") {
-    await ask({ type: "setListView", view: event.target.value });
+  const { name, type, value, checked, dataset } = event.target;
+  if (dataset.thunderbird !== undefined) {
+    await ask({ type: "setThunderbirdSetting", name, value: type === "checkbox" ? checked : value });
     return;
   }
   const bimiSwitch = form.querySelector('[name="icons.bimi.enabled"]');
@@ -302,10 +304,14 @@ document.getElementById("clearCache").addEventListener("click", async event => {
   setTimeout(() => (button.textContent = "Clear icon cache"), 1500);
 });
 
-async function renderListView() {
-  const view = await ask({ type: "getListView" });
-  for (const radio of form.querySelectorAll('[name="listView"]')) {
-    radio.checked = radio.value === view;
+async function renderThunderbirdSettings() {
+  const values = await ask({ type: "getThunderbirdSettings" });
+  for (const input of form.querySelectorAll("[data-thunderbird]")) {
+    if (input.type === "radio") {
+      input.checked = input.value === values[input.name];
+    } else {
+      input.checked = values[input.name];
+    }
   }
 }
 
@@ -322,7 +328,7 @@ browser.storage.onChanged.addListener((changes, area) => {
 
 renderAccounts();
 render(await loadSettings(storage));
-await renderListView();
-// Thunderbird's own menu can change it too.
-window.addEventListener("focus", renderListView);
+await renderThunderbirdSettings();
+// Thunderbird's own menus and settings can change them too.
+window.addEventListener("focus", renderThunderbirdSettings);
 await renderStatus();
