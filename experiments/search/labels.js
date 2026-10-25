@@ -72,7 +72,7 @@ var qolSearchLabels = (() => {
     chipExclude: "Klicken zum Ausschließen",
     chipInclude: "Klicken zum Einschließen",
     or: "oder",
-    anyOf: "Eins von",
+    anyOf: "Mindestens eins",
     glodaOff: "Der Volltextindex ist deaktiviert: Die Suche im Nachrichtentext ist langsamer und übersieht einige kodierte E-Mails.",
     turnOn: "Einschalten",
     glodaRestart: "Starte Thunderbird neu, um den Volltextindex aufzubauen.",
