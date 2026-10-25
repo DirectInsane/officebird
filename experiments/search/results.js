@@ -73,10 +73,17 @@ var qolSearchResults = (() => {
 
   function feed(win, hdrs) {
     const view = win.gDBView.QueryInterface(win.Ci.nsIMsgSearchNotify);
+    const before = win.gDBView.rowCount;
     for (const hdr of hdrs) {
       view.onSearchHit(hdr, hdr.folder);
     }
     view.onSearchDone(win.Cr.NS_OK);
+    // The search view tells only a XUL tree about its hits, so the list draws no rows
+    // for them by itself. Unsorted, the hits come after the rows shown so far.
+    const added = win.gDBView.rowCount - before;
+    if (added) {
+      win.threadTree.rowCountChanged(before, added);
+    }
   }
 
   // Shows the saved folder again in a list whose search view is closed.

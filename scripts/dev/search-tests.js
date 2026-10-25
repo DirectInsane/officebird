@@ -1139,6 +1139,26 @@ test("clicking the twisty of the selected folder keeps the search", async () => 
   assert(chipRow(), "the chips are gone");
 });
 
+test("shown and added hits are drawn as cards", async () => {
+  // Each row of the list shows the mail of its index, not one of the folder shown before.
+  const drawn = () => {
+    for (let i = 0; i < win.gDBView.rowCount; i++) {
+      if (!win.threadTree.getRowAtIndex(i)?.dataset.qolId?.startsWith(`${keyOf(win.gDBView.getMsgHdrAt(i))}#`)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  results.show(win, [hdrs(inbox)[3], hdrs(inbox)[4]]);
+  await waitFor(drawn);
+  // Another hit set, as for a switch of the scope: the list keeps its size.
+  results.show(win, [hdrs(inbox)[5], hdrs(inbox)[6]]);
+  await waitFor(drawn);
+  results.add(win, [hdrs(archive)[0]]);
+  assertEqual(win.gDBView.rowCount, 3);
+  await waitFor(drawn);
+});
+
 // Runner
 
 try {
