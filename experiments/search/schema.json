@@ -1,0 +1,38 @@
+[
+  {
+    "namespace": "qolSearch",
+    "functions": [
+      {
+        "name": "init",
+        "type": "function",
+        "async": true,
+        "description": "Replaces Thunderbird's search bar in open and future main windows if config.enabled is true and returns the available features.",
+        "parameters": [
+          {
+            "name": "config",
+            "type": "any"
+          }
+        ]
+      },
+      {
+        "name": "updateConfig",
+        "type": "function",
+        "async": true,
+        "description": "Applies a new config to every open main window.",
+        "parameters": [
+          {
+            "name": "config",
+            "type": "any"
+          }
+        ]
+      },
+      {
+        "name": "getFeatures",
+        "type": "function",
+        "async": true,
+        "description": "Returns whether the search is available.",
+        "parameters": []
+      }
+    ]
+  }
+]

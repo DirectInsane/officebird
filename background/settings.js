@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   // Tones are how much of the normal text color read mail and previews keep, in %.
   style: { outlook: true, barWidth: 3, cardRadius: 7, cardGap: 4, readSender: 62, readSubject: 100, groupHeaders: true, expandGroups: true, cardLook: "theme" },
   compose: { ribbon: true, styleSet: "default" },
+  search: { enabled: true, scope: "folder" },
 });
 
 // Ribbon UI state, not a user setting.
@@ -32,6 +33,7 @@ const RESOLVER_NAMES = ["cloudflare", "quad9"];
 export const CARD_LOOKS = ["theme", "outline", "filled", "both"];
 // Must match qolFormatting.STYLE_SET_KEYS in experiments/compose/formatting.js.
 export const STYLE_SETS = ["default", "modern", "classic", "compact"];
+export const SEARCH_SCOPES = ["folder", "all"];
 // Must match qolDateFormat.STYLES in experiments/qol/dateformat.js.
 export const DATE_STYLES = ["smart", "relative", "date", "datetime", "thunderbird"];
 // Thunderbird's incoming server keys look like "server1".
@@ -95,6 +97,7 @@ export function normalizeSettings(raw) {
   const table = obj(r.table);
   const style = obj(r.style);
   const compose = obj(r.compose);
+  const search = obj(r.search);
   return {
     icons: {
       enabled: bool(icons.enabled, d.icons.enabled),
@@ -135,6 +138,10 @@ export function normalizeSettings(raw) {
       ribbon: bool(compose.ribbon, d.compose.ribbon),
       styleSet: STYLE_SETS.includes(compose.styleSet) ? compose.styleSet : d.compose.styleSet,
     },
+    search: {
+      enabled: bool(search.enabled, d.search.enabled),
+      scope: SEARCH_SCOPES.includes(search.scope) ? search.scope : d.search.scope,
+    },
   };
 }
 
@@ -174,6 +181,7 @@ export function toExperimentConfig(s) {
     table: { ...s.table },
     style: { ...s.style },
     compose: { ribbon: s.compose.ribbon, styleSet: s.compose.styleSet },
+    search: { enabled: s.search.enabled, scope: s.search.scope },
   };
 }
 

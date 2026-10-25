@@ -79,23 +79,47 @@ var qolSearchResults = (() => {
     view.onSearchDone(win.Cr.NS_OK);
   }
 
-  // Switches the tab's message list to a search view that shows exactly `hdrs`.
+  // Shows the saved folder again in a list whose search view is closed.
+  function showFolder(win, saved) {
+    // displayFolder does nothing for the folder selected in the folder pane, and only the
+    // folder pane's select handler opens a view of it again.
+    if (!saved.folder || win.folderTree.selectedRow?.uri === saved.folder.URI) {
+      win.folderPane._onSelect();
+    } else {
+      win.displayFolder(saved.folder);
+    }
+    restoreFolderView(win, saved);
+  }
+
+  // Switches the tab's message list to a search view that shows exactly `hdrs`. When the
+  // switch fails, the folder comes back and the error is thrown on.
   function show(win, hdrs) {
     let state = activeState(win);
-    if (!state) {
-      const saved = saveFolderView(win);
-      // Leaving the folder the way the folder pane does it (mark-read-on-leave and so on).
-      win.gViewWrapper?.close();
-      const wrapper = new win.DBViewWrapper(win.dbViewWrapperListener);
-      win.gViewWrapper = wrapper;
-      wrapper.openSearchView();
-      state = { wrapper, saved };
-      states.set(win, state);
+    const saved = state ? state.saved : saveFolderView(win);
+    try {
+      if (!state) {
+        // Leaving the folder the way the folder pane does it (mark-read-on-leave and so on).
+        win.gViewWrapper?.close();
+        const wrapper = new win.DBViewWrapper(win.dbViewWrapperListener);
+        win.gViewWrapper = wrapper;
+        state = { wrapper, saved };
+        states.set(win, state);
+        wrapper.openSearchView();
+      }
+      // Setting the folders re-creates the (empty) view.
+      state.wrapper.searchFolders = folderList(hdrs);
+      win.gDBView.QueryInterface(win.Ci.nsIMsgSearchNotify).onNewSearch();
+      feed(win, hdrs);
+    } catch (e) {
+      states.delete(win);
+      try {
+        win.gViewWrapper?.close();
+      } catch (closeError) {
+        win.console.warn("officebird search: broken search view not closed", closeError);
+      }
+      showFolder(win, saved);
+      throw e;
     }
-    // Setting the folders re-creates the (empty) view.
-    state.wrapper.searchFolders = folderList(hdrs);
-    win.gDBView.QueryInterface(win.Ci.nsIMsgSearchNotify).onNewSearch();
-    feed(win, hdrs);
   }
 
   // Adds hits to the active search view.
@@ -124,12 +148,7 @@ var qolSearchResults = (() => {
     const { saved, wrapper } = state;
     // Clears gDBView, so the folder pane does not save the results' selection as the folder's.
     wrapper.close();
-    if (!saved.folder || win.folderTree.selectedRow?.uri === saved.folder.URI) {
-      win.folderPane._onSelect();
-    } else {
-      win.displayFolder(saved.folder);
-    }
-    restoreFolderView(win, saved);
+    showFolder(win, saved);
   }
 
   function isActive(win) {

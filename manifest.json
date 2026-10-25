@@ -60,6 +60,20 @@
         ],
         "script": "experiments/compose/implementation.js"
       }
+    },
+    "qolSearch": {
+      "schema": "experiments/search/schema.json",
+      "parent": {
+        "scopes": [
+          "addon_parent"
+        ],
+        "paths": [
+          [
+            "qolSearch"
+          ]
+        ],
+        "script": "experiments/search/implementation.js"
+      }
     }
   }
 }

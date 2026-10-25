@@ -48,6 +48,7 @@ test("toExperimentConfig maps defaults", () => {
     table: { dateStyle: "smart" },
     style: { outlook: true, barWidth: 3, cardRadius: 7, cardGap: 4, readSender: 62, readSubject: 100, groupHeaders: true, expandGroups: true, cardLook: "theme" },
     compose: { ribbon: true, styleSet: "default" },
+    search: { enabled: true, scope: "folder" },
   });
 });
 
@@ -176,4 +177,22 @@ test("compose state falls back to defaults and is validated", () => {
   assert.deepEqual(s.recentFonts, ["Arial", "Georgia", "A", "B", "C"]);
   assert.deepEqual(s.lastColors, { text: "#00ff00", highlight: "#ffff00" });
   assert.equal(normalizeComposeState({ recentFonts: ["x".repeat(101)] }).recentFonts.length, 0);
+});
+
+test("search is on and searches the current folder by default", () => {
+  assert.deepEqual(DEFAULT_SETTINGS.search, { enabled: true, scope: "folder" });
+  assert.deepEqual(normalizeSettings({}).search, { enabled: true, scope: "folder" });
+});
+
+test("search scope is folder or all", () => {
+  assert.equal(normalizeSettings({ search: { scope: "all" } }).search.scope, "all");
+  for (const bad of ["everywhere", "", 3, null, "__proto__"]) {
+    assert.equal(normalizeSettings({ search: { scope: bad } }).search.scope, "folder", String(bad));
+  }
+  assert.equal(normalizeSettings({ search: { enabled: 0 } }).search.enabled, false);
+});
+
+test("toExperimentConfig passes the search settings", () => {
+  const s = normalizeSettings({ search: { enabled: false, scope: "all" } });
+  assert.deepEqual(toExperimentConfig(s).search, { enabled: false, scope: "all" });
 });

@@ -1,4 +1,4 @@
-// Wires settings, the icon resolver and the qol and qolCompose experiments together.
+// Wires settings, the icon resolver and the qol, qolCompose and qolSearch experiments together.
 import {
   normalizeSettings,
   toExperimentConfig,
@@ -101,6 +101,20 @@ function applyComposeConfig(method) {
   return callCompose(method, config);
 }
 
+// The search is a separate experiment too: a failure there only disables the search.
+async function callSearch(method, ...args) {
+  try {
+    return await messenger.qolSearch[method](...args);
+  } catch (e) {
+    console.warn("[qol] search", method, e);
+    return undefined;
+  }
+}
+
+function applySearchConfig(method) {
+  return callSearch(method, toExperimentConfig(settings).search);
+}
+
 try {
   messenger.qolCompose.onStateChanged.addListener(async state => {
     composeState = normalizeComposeState(state);
@@ -140,6 +154,7 @@ browser.storage.onChanged.addListener(async (changes, area) => {
     console.warn("[qol] settings not applied", e);
   }
   await applyComposeConfig("updateConfig");
+  await applySearchConfig("updateConfig");
   if (JSON.stringify(settings.icons) !== before) {
     await messenger.qol.clearIcons();
   }
@@ -167,6 +182,7 @@ browser.runtime.onMessage.addListener(async message => {
         features: {
           ...(await messenger.qol.getFeatures()),
           ...((await callCompose("getFeatures")) ?? { composeRibbon: false }),
+          ...((await callSearch("getFeatures")) ?? { search: false }),
         },
         trustedConfigured: Object.keys(settings.icons.trustedByServer).length > 0,
         bimiAllowed,
@@ -200,5 +216,6 @@ try {
   await applyConfig("init");
 } finally {
   await applyComposeConfig("init");
+  await applySearchConfig("init");
 }
 console.log("[qol] background started");

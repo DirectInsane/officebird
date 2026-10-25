@@ -4,6 +4,8 @@
 var qolSearchLabels = (() => {
   const en = {
     placeholder: "Search mail",
+    clearField: "Clear search",
+    filters: "Filters",
     from: "From",
     to: "To",
     subject: "Subject",
@@ -41,6 +43,8 @@ var qolSearchLabels = (() => {
 
   const de = {
     placeholder: "E-Mails durchsuchen",
+    clearField: "Suche löschen",
+    filters: "Filter",
     from: "Von",
     to: "An",
     subject: "Betreff",
