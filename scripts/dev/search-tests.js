@@ -1000,6 +1000,27 @@ test("Turn on asks for a restart when the index is not running", async () => {
   }
 });
 
+test("the restart notice Turn on put in place closes with ✕", async () => {
+  const was = Services.prefs.getBoolPref(GLODA_PREF, true);
+  mainWindow.qolSearch.controller.manager.dismissed.clear();
+  try {
+    await withGlodaStopped(async () => {
+      await setGloda(false);
+      await searchFor("Krankenversicherungsbeitrag");
+      (await waitFor(() => notice("glodaOff"))).querySelector(".qol-notice-action").click();
+      // In the same search.
+      notice("glodaRestart").querySelector(".qol-notice-close").click();
+      await waitFor(() => !notice("glodaRestart"));
+      assert(!notice("glodaOff"), "the Turn on notice came back");
+      await waitFor(() => Services.prefs.getBoolPref(GLODA_PREF, false), 5000);
+      await waitFor(() => shown(field()));
+    });
+  } finally {
+    await setGloda(was);
+    mainWindow.qolSearch.controller.manager.dismissed.clear();
+  }
+});
+
 test("tip shows for five searches", async () => {
   Services.prefs.clearUserPref(TIP_PREF);
   const shownTips = [];

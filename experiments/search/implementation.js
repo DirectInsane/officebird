@@ -488,8 +488,14 @@ var qolSearch = (() => {
     // After a notice was closed or its cause changed; `replacement` is shown in its place.
     replaceNotice(kind, replacement = null) {
       for (const { search } of this.tabs.values()) {
-        if (search?.notices.some(notice => notice.kind === kind)) {
+        if (!search) {
+          continue;
+        }
+        if (search.notices.some(notice => notice.kind === kind)) {
           search.replacedNotices.set(kind, replacement);
+          this.render(search);
+        } else if ([...search.replacedNotices.values()].some(notice => notice?.kind === kind)) {
+          // A notice shown in place of another one: closed, it is left out like the others.
           this.render(search);
         }
       }
