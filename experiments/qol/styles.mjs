@@ -363,7 +363,7 @@ ${dummy} .sort-header-details {
     // rounding clips it; a wider left border would meet the top/bottom borders at a diagonal.
     rules.push(`:root {
   --qol-unread: light-dark(#0b63ce, #4c9dff);
-  --qol-bar-width: ${px(barWidth, 2, 6)};
+  --qol-bar-width: ${px(barWidth, 2, 10)};
   --qol-card-radius: ${px(cardRadius, 0, 12)};
   --qol-card-gap: ${px(cardGap, 0, 12)};
   --qol-read-sender: ${pct(readSender, 40, 100)};

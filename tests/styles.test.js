@@ -268,3 +268,8 @@ test("search results: the card folder label is small text in a share of the text
   assert.doesNotMatch(rule, /#[0-9a-f]{3,6}\b/i);
   assert.match(css, /--qol-folder-label-color:\s*color-mix\(in srgb, currentColor \d+%, transparent\)/);
 });
+
+test("the unread bar can be up to 10px wide", () => {
+  assert.match(buildStylesheet({ ...OUTLOOK_CFG, style: { ...OUTLOOK_CFG.style, barWidth: 10 } }), /--qol-bar-width:\s*10px/);
+  assert.throws(() => buildStylesheet({ ...OUTLOOK_CFG, style: { ...OUTLOOK_CFG.style, barWidth: 11 } }));
+});

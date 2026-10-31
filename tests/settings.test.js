@@ -46,7 +46,7 @@ test("toExperimentConfig maps defaults", () => {
     preview: { enabled: true, lines: 2, tableLines: 1, tone: 45 },
     bar: { background: "#e8e8e8", text: "#333333", opacity: 60, compact: false },
     table: { dateStyle: "smart" },
-    style: { outlook: true, barWidth: 3, cardRadius: 7, cardGap: 4, readSender: 62, readSubject: 100, groupHeaders: true, expandGroups: true, cardLook: "theme" },
+    style: { outlook: true, barWidth: 6, cardRadius: 7, cardGap: 4, readSender: 62, readSubject: 100, groupHeaders: true, expandGroups: true, cardLook: "theme" },
     compose: { ribbon: true, styleSet: "default" },
     search: { enabled: true, scope: "folder" },
     todayPane: { enabled: true, highlight: "red", customColor: "#d70022" },
@@ -54,8 +54,8 @@ test("toExperimentConfig maps defaults", () => {
 });
 
 test("outlook style sliders are clamped", () => {
-  const s = normalizeSettings({ style: { barWidth: 9, cardRadius: -2, cardGap: "6" } });
-  assert.equal(s.style.barWidth, 6);
+  const s = normalizeSettings({ style: { barWidth: 14, cardRadius: -2, cardGap: "6" } });
+  assert.equal(s.style.barWidth, 10);
   assert.equal(s.style.cardRadius, 0);
   assert.equal(s.style.cardGap, 6);
   assert.equal(normalizeSettings({ style: { barWidth: 1, cardRadius: 40, cardGap: 30 } }).style.barWidth, 2);

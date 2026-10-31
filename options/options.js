@@ -152,7 +152,7 @@ function renderDerived(settings) {
   for (const radio of presets) {
     radio.checked = radio === (match ?? presets.find(r => r.value === "custom"));
   }
-  document.querySelector('[data-section="view"]').classList.toggle("outlook-on", settings.style.outlook);
+  document.getElementById("page-mail").classList.toggle("outlook-on", settings.style.outlook);
   for (const el of preview.querySelectorAll("[data-mock-preview]")) {
     el.style.webkitLineClamp = el.dataset.mockPreview === "cards" ? settings.preview.lines : settings.preview.tableLines;
   }
@@ -344,6 +344,37 @@ browser.storage.onChanged.addListener((changes, area) => {
     radio.checked = radio.value === styleSet;
   }
 });
+
+// One topic at a time; the address keeps it, so a reload stays on the same page.
+const TOPIC_KEY = "officebird.optionsTopic";
+const topics = [...document.querySelectorAll(".page")].map(page => page.dataset.page);
+
+function showTopic(wanted) {
+  const topic = topics.includes(wanted) ? wanted : topics[0];
+  for (const page of document.querySelectorAll(".page")) {
+    page.hidden = page.dataset.page !== topic;
+  }
+  for (const link of document.querySelectorAll("[data-topic]")) {
+    link.toggleAttribute("aria-current", link.dataset.topic === topic);
+  }
+  try {
+    localStorage.setItem(TOPIC_KEY, topic);
+  } catch {}
+}
+
+function storedTopic() {
+  try {
+    return localStorage.getItem(TOPIC_KEY);
+  } catch {
+    return null;
+  }
+}
+
+window.addEventListener("hashchange", () => {
+  showTopic(location.hash.slice(1));
+  window.scrollTo(0, 0);
+});
+showTopic(location.hash.slice(1) || storedTopic());
 
 renderAccounts();
 render(await loadSettings(storage));
