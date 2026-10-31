@@ -113,6 +113,24 @@ try {
     await client.send("WebDriver:ReleaseActions");
     console.log("clicked", x, y);
   } else if (mode === "--screenshot") {
+    // Optional third argument: the windowtype of the window to take, e.g. msgcompose.
+    const windowType = process.argv[4];
+    if (windowType) {
+      const reply = await client.send("WebDriver:GetWindowHandles");
+      const handles = Array.isArray(reply) ? reply : reply.value;
+      let found = false;
+      for (const handle of handles) {
+        await client.send("WebDriver:SwitchToWindow", { handle, focus: false });
+        const type = await client.send("WebDriver:ExecuteScript", { script: `return document.documentElement.getAttribute("windowtype");`, args: [] });
+        if (type.value === windowType) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        throw new Error(`no window of type ${windowType}`);
+      }
+    }
     const result = await client.send("WebDriver:TakeScreenshot", {});
     await writeFile(arg, Buffer.from(result.value, "base64"));
     console.log("saved", arg);

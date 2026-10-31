@@ -21,7 +21,16 @@
   <a href="#development">Development</a>
 </p>
 
-Officebird brings the parts of Outlook that people miss most to Thunderbird: a message list that shows who wrote and what it's about at a glance, and a formatting ribbon for writing mail.
+Officebird brings the parts of Outlook that people miss most to Thunderbird: a message list that shows who wrote and what it's about at a glance, and a formatting ribbon for writing mail. A calmer Today Pane keeps the coming days next to your inbox.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="screenshots/mail-dark.png">
+    <img src="screenshots/mail.png" alt="Officebird in Thunderbird: message cards with sender logos and initials, preview lines and Today, Yesterday and Last 7 Days groups, the reading pane, and the Today Pane with a mini calendar and the coming events" width="100%">
+  </picture>
+</p>
+
+<p align="center"><sub>All screenshots show made-up data. They follow your light or dark mode.</sub></p>
 
 ## Features
 
@@ -37,10 +46,34 @@ Officebird brings the parts of Outlook that people miss most to Thunderbird: a m
 | **Table view** | Avatars and a preview line in the classic table, and a date column that shows the time for today, the weekday for this week and the date for older mail. |
 | **Remote content notice** | Custom colors and a compact size for the "remote content blocked" bar. |
 | **Search** | A query field with a filter panel replaces Thunderbird's search bar (it can be brought back in the settings). Type words or use keywords, in English or German: `from:`/`von:`, `to:`/`an:`, `subject:`/`betreff:`, `in:`, `after:`/`nach:`, `before:`/`vor:`, `tag:`/`schlagwort:`, `has:attachment`, `is:unread`, `is:flagged`; `OR` combines, a minus excludes. Results appear in the message list, for **This folder** or **All mailboxes**. |
-| **Today Pane** | Thunderbird's calendar column next to the mail (View → Today Pane) gets a mini calendar with today highlighted (red, the accent color or your own) and the events in a card with a day column, in Thunderbird's language. The settings also show or hide the pane, the week numbers and the number of days in the agenda. |
 | **Thunderbird switches** | Unified folders (Inbox, Drafts, Sent, Spam of all accounts) above the accounts, and whether mail is marked read when shown, right in the add-on's settings. |
 
+### Today Pane
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="screenshots/today-pane-dark.png">
+  <img src="screenshots/today-pane.png" alt="Today Pane with a mini calendar, today in red and the coming events in a card with a day column" width="260" align="right">
+</picture>
+
+Thunderbird's calendar column next to the mail (View → Today Pane) gets a calmer look:
+
+- a **mini calendar** with today highlighted in red, your accent color or a color of your own, and quiet week numbers,
+- the **coming events** in a card, with the weekday and day in a column and each calendar's color as a bar,
+- a **Today** button that jumps back after you looked at another day,
+- weekday and month names in Thunderbird's language.
+
+The settings also show or hide the pane, the week numbers and the number of days in the agenda.
+
+<br clear="right">
+
 ### Compose window
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="screenshots/compose-dark.png">
+    <img src="screenshots/compose.png" alt="Compose window with the ribbon: Send, Save and Attach, clipboard and format painter, fonts and sizes, and the Include and Check groups" width="100%">
+  </picture>
+</p>
 
 | | |
 |---|---|
@@ -108,6 +141,7 @@ scripts/dev/start-thunderbird.sh  # separate Thunderbird on .dev-profile/, Mario
 node scripts/dev/marionette.mjs --install "$PWD"                 # load the add-on temporarily
 node scripts/dev/marionette.mjs scripts/dev/seed-test-folder.js  # sample mails in a test folder
 scripts/dev/test-compose.sh       # compose ribbon integration tests in their own profile
+scripts/dev/screenshots.sh        # the README screenshots, light and dark, with made-up data in their own profile
 ```
 
 Copy `scripts/dev/user.js` to `.dev-profile/user.js` before the first start. The dev scripts currently expect macOS with Thunderbird in `/Applications`.
