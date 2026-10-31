@@ -119,6 +119,9 @@ function hexToRgba(hex, opacity) {
 function renderDerived(settings) {
   document.querySelector('[data-section="icons"]').classList.toggle("off", !settings.icons.enabled);
   document.querySelector('[data-section="preview"]').classList.toggle("off", !settings.preview.enabled);
+  for (const row of document.querySelectorAll("[data-today-look]")) {
+    row.hidden = !settings.todayPane.enabled || (row.dataset.todayCustom !== undefined && settings.todayPane.highlight !== "custom");
+  }
 
   for (const output of document.querySelectorAll("output[data-for]")) {
     output.textContent = getPath(settings, output.dataset.for) + (output.dataset.unit ? ` ${output.dataset.unit}` : "");
@@ -178,6 +181,7 @@ async function renderStatus() {
     warningBar: "Remote content bar",
     composeRibbon: "Compose ribbon",
     search: "Search",
+    todayPane: "Today Pane",
   };
   const list = document.getElementById("status");
   list.replaceChildren(
@@ -218,8 +222,16 @@ function syncTones(target) {
   }
 }
 
+function renderThunderbirdOutput(input) {
+  const output = form.querySelector(`output[data-thunderbird-for="${input.name}"]`);
+  if (output) {
+    output.textContent = input.value;
+  }
+}
+
 form.addEventListener("input", event => {
   if (event.target.dataset.thunderbird !== undefined) {
+    renderThunderbirdOutput(event.target);
     return;
   }
   syncTones(event.target);
@@ -308,8 +320,14 @@ document.getElementById("clearCache").addEventListener("click", async event => {
 async function renderThunderbirdSettings() {
   const values = await ask({ type: "getThunderbirdSettings" });
   for (const input of form.querySelectorAll("[data-thunderbird]")) {
+    if (!(input.name in values)) {
+      continue;
+    }
     if (input.type === "radio") {
       input.checked = input.value === values[input.name];
+    } else if (input.type === "range") {
+      input.value = values[input.name];
+      renderThunderbirdOutput(input);
     } else {
       input.checked = values[input.name];
     }

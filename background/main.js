@@ -1,4 +1,4 @@
-// Wires settings, the icon resolver and the qol, qolCompose and qolSearch experiments together.
+// Wires settings, the icon resolver and the qol, qolCompose, qolSearch and qolTodayPane experiments together.
 import {
   normalizeSettings,
   toExperimentConfig,
@@ -17,6 +17,8 @@ const BIMI_ORIGINS = { origins: ["https://*/*"] };
 const RESULT_BATCH_MS = 30;
 const SAMPLES_PER_FOLDER = 50;
 const THUNDERBIRD_SETTINGS = ["listView", "markReadOnView", "unifiedFolders", "glodaIndex"];
+// Thunderbird's Today Pane settings, changed by the qolTodayPane experiment.
+const CALENDAR_SETTINGS = ["todayPaneShown", "weekNumbers", "agendaDays"];
 
 // With a listener registered, Thunderbird keeps an update for the next start instead of
 // swapping the experiments' privileged code while it runs. No runtime.reload() here.
@@ -129,6 +131,20 @@ function applySearchConfig(method) {
   return callSearch(method, toExperimentConfig(settings).search);
 }
 
+// The Today Pane look is a separate experiment too, for the same reason.
+async function callTodayPane(method, ...args) {
+  try {
+    return await messenger.qolTodayPane[method](...args);
+  } catch (e) {
+    console.warn("[qol] today pane", method, e);
+    return undefined;
+  }
+}
+
+function applyTodayPaneConfig(method) {
+  return callTodayPane(method, toExperimentConfig(settings).todayPane);
+}
+
 try {
   messenger.qolCompose.onStateChanged.addListener(async state => {
     composeState = normalizeComposeState(state);
@@ -182,6 +198,7 @@ browser.storage.onChanged.addListener(async (changes, area) => {
   }
   await applyComposeConfig("updateConfig");
   await applySearchConfig("updateConfig");
+  await applyTodayPaneConfig("updateConfig");
   if (JSON.stringify(settings.icons) !== before) {
     await messenger.qol.clearIcons();
   }
@@ -210,6 +227,7 @@ browser.runtime.onMessage.addListener(async message => {
           ...(await messenger.qol.getFeatures()),
           ...((await callCompose("getFeatures")) ?? { composeRibbon: false }),
           ...((await callSearch("getFeatures")) ?? { search: false }),
+          ...((await callTodayPane("getFeatures")) ?? { todayPane: false }),
         },
         trustedConfigured: Object.keys(settings.icons.trustedByServer).length > 0,
         bimiAllowed,
@@ -217,8 +235,15 @@ browser.runtime.onMessage.addListener(async message => {
     case "listServers":
       return messenger.qol.listServers();
     case "getThunderbirdSettings":
-      return messenger.qol.getThunderbirdSettings();
+      return {
+        ...(await messenger.qol.getThunderbirdSettings()),
+        ...((await callTodayPane("getCalendarSettings")) ?? {}),
+      };
     case "setThunderbirdSetting":
+      if (CALENDAR_SETTINGS.includes(message.name)) {
+        const value = message.name === "agendaDays" ? Number(message.value) : Boolean(message.value);
+        return callTodayPane("setCalendarSetting", message.name, value);
+      }
       if (!THUNDERBIRD_SETTINGS.includes(message.name)) {
         return undefined;
       }
@@ -244,5 +269,6 @@ try {
 } finally {
   await applyComposeConfig("init");
   await applySearchConfig("init");
+  await applyTodayPaneConfig("init");
 }
 console.log("[qol] background started");

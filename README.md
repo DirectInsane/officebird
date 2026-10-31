@@ -37,6 +37,7 @@ Officebird brings the parts of Outlook that people miss most to Thunderbird: a m
 | **Table view** | Avatars and a preview line in the classic table, and a date column that shows the time for today, the weekday for this week and the date for older mail. |
 | **Remote content notice** | Custom colors and a compact size for the "remote content blocked" bar. |
 | **Search** | A query field with a filter panel replaces Thunderbird's search bar (it can be brought back in the settings). Type words or use keywords, in English or German: `from:`/`von:`, `to:`/`an:`, `subject:`/`betreff:`, `in:`, `after:`/`nach:`, `before:`/`vor:`, `tag:`/`schlagwort:`, `has:attachment`, `is:unread`, `is:flagged`; `OR` combines, a minus excludes. Results appear in the message list, for **This folder** or **All mailboxes**. |
+| **Today Pane** | Thunderbird's calendar column next to the mail (View → Today Pane) gets a mini calendar with today highlighted (red, the accent color or your own) and the events in a card with a day column, in Thunderbird's language. The settings also show or hide the pane, the week numbers and the number of days in the agenda. |
 | **Thunderbird switches** | Unified folders (Inbox, Drafts, Sent, Spam of all accounts) above the accounts, and whether mail is marked read when shown, right in the add-on's settings. |
 
 ### Compose window

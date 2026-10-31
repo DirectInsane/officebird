@@ -353,6 +353,60 @@
         </div>
       </section>
 
+      <section class="panel" data-section="todayPane">
+        <div class="panel-head">
+          <div>
+            <h2>Today Pane</h2>
+            <p>Thunderbird's calendar column next to the mail (View → Today Pane).</p>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="setting">
+            <div>
+              <div class="label">Show the Today Pane next to mail</div>
+              <div class="hint">The same as View → Today Pane (F11) in the mail tab.</div>
+            </div>
+            <input type="checkbox" class="switch" name="todayPaneShown" data-thunderbird aria-label="Show the Today Pane next to mail" />
+          </div>
+          <div class="setting">
+            <div>
+              <div class="label">Officebird look for the Today Pane</div>
+              <div class="hint">A mini calendar with today highlighted and the events in a card with a day column. Turn it off to get Thunderbird's own look back.</div>
+            </div>
+            <input type="checkbox" class="switch" name="todayPane.enabled" aria-label="Officebird look for the Today Pane" />
+          </div>
+          <div class="setting" data-today-look>
+            <div>
+              <div class="label">Today's highlight</div>
+              <div class="hint">Accent follows Thunderbird's accent (Settings → Appearance) or your theme.</div>
+            </div>
+            <div class="segmented" role="radiogroup" aria-label="Today's highlight">
+              <label><input type="radio" name="todayPane.highlight" value="red" /><span>Red</span></label>
+              <label><input type="radio" name="todayPane.highlight" value="accent" /><span>Accent</span></label>
+              <label><input type="radio" name="todayPane.highlight" value="custom" /><span>Custom</span></label>
+            </div>
+          </div>
+          <div class="setting" data-today-look data-today-custom>
+            <div class="label">Custom highlight color</div>
+            <input type="color" name="todayPane.customColor" aria-label="Custom highlight color" />
+          </div>
+          <div class="setting">
+            <div>
+              <div class="label">Week numbers</div>
+              <div class="hint">In the mini calendar of the Today Pane and the Calendar tab.</div>
+            </div>
+            <input type="checkbox" class="switch" name="weekNumbers" data-thunderbird aria-label="Week numbers" />
+          </div>
+          <div class="setting">
+            <div>
+              <div class="label">Days in the agenda</div>
+              <div class="hint">How many days the list shows when the Today Pane is on today.</div>
+            </div>
+            <div class="slider"><input type="range" name="agendaDays" data-thunderbird min="1" max="28" step="1" /><output data-thunderbird-for="agendaDays"></output></div>
+          </div>
+        </div>
+      </section>
+
       <footer class="status">
         <ul id="status"></ul>
       </footer>

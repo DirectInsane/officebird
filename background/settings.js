@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   style: { outlook: true, barWidth: 3, cardRadius: 7, cardGap: 4, readSender: 62, readSubject: 100, groupHeaders: true, expandGroups: true, cardLook: "theme" },
   compose: { ribbon: true, styleSet: "default" },
   search: { enabled: true, scope: "folder" },
+  todayPane: { enabled: true, highlight: "red", customColor: "#d70022" },
 });
 
 // Ribbon UI state, not a user setting.
@@ -34,6 +35,7 @@ export const CARD_LOOKS = ["theme", "outline", "filled", "both"];
 // Must match qolFormatting.STYLE_SET_KEYS in experiments/compose/formatting.js.
 export const STYLE_SETS = ["default", "modern", "classic", "compact"];
 export const SEARCH_SCOPES = ["folder", "all"];
+export const TODAY_HIGHLIGHTS = ["red", "accent", "custom"];
 // Must match qolDateFormat.STYLES in experiments/qol/dateformat.js.
 export const DATE_STYLES = ["smart", "relative", "date", "datetime", "thunderbird"];
 // Thunderbird's incoming server keys look like "server1".
@@ -98,6 +100,7 @@ export function normalizeSettings(raw) {
   const style = obj(r.style);
   const compose = obj(r.compose);
   const search = obj(r.search);
+  const todayPane = obj(r.todayPane);
   return {
     icons: {
       enabled: bool(icons.enabled, d.icons.enabled),
@@ -142,6 +145,11 @@ export function normalizeSettings(raw) {
       enabled: bool(search.enabled, d.search.enabled),
       scope: SEARCH_SCOPES.includes(search.scope) ? search.scope : d.search.scope,
     },
+    todayPane: {
+      enabled: bool(todayPane.enabled, d.todayPane.enabled),
+      highlight: TODAY_HIGHLIGHTS.includes(todayPane.highlight) ? todayPane.highlight : d.todayPane.highlight,
+      customColor: color(todayPane.customColor, d.todayPane.customColor),
+    },
   };
 }
 
@@ -182,6 +190,7 @@ export function toExperimentConfig(s) {
     style: { ...s.style },
     compose: { ribbon: s.compose.ribbon, styleSet: s.compose.styleSet },
     search: { enabled: s.search.enabled, scope: s.search.scope },
+    todayPane: { ...s.todayPane },
   };
 }
 

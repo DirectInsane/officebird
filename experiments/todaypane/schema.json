@@ -1,0 +1,62 @@
+[
+  {
+    "namespace": "qolTodayPane",
+    "functions": [
+      {
+        "name": "init",
+        "type": "function",
+        "async": true,
+        "description": "Restyles the Today Pane in open and future main windows if config.enabled is true and returns the available features.",
+        "parameters": [
+          {
+            "name": "config",
+            "type": "any"
+          }
+        ]
+      },
+      {
+        "name": "updateConfig",
+        "type": "function",
+        "async": true,
+        "description": "Applies a new config to every open main window.",
+        "parameters": [
+          {
+            "name": "config",
+            "type": "any"
+          }
+        ]
+      },
+      {
+        "name": "getFeatures",
+        "type": "function",
+        "async": true,
+        "description": "Returns whether the Today Pane look is available.",
+        "parameters": []
+      },
+      {
+        "name": "getCalendarSettings",
+        "type": "function",
+        "async": true,
+        "description": "Returns Thunderbird's own Today Pane settings: { todayPaneShown, weekNumbers, agendaDays }.",
+        "parameters": []
+      },
+      {
+        "name": "setCalendarSetting",
+        "type": "function",
+        "async": true,
+        "description": "Changes one of the settings getCalendarSettings returns.",
+        "parameters": [
+          {
+            "name": "name",
+            "type": "string",
+            "enum": ["todayPaneShown", "weekNumbers", "agendaDays"]
+          },
+          {
+            "name": "value",
+            "type": "any"
+          }
+        ]
+      }
+    ]
+  }
+]

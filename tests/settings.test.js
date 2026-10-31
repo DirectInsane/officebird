@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_SETTINGS, normalizeSettings, toExperimentConfig, loadSettings, saveSettings,
-  trustedIdsFor, pruneServers, normalizeComposeState, STYLE_SETS,
+  trustedIdsFor, pruneServers, normalizeComposeState, STYLE_SETS, TODAY_HIGHLIGHTS,
 } from "../background/settings.js";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -49,6 +49,7 @@ test("toExperimentConfig maps defaults", () => {
     style: { outlook: true, barWidth: 3, cardRadius: 7, cardGap: 4, readSender: 62, readSubject: 100, groupHeaders: true, expandGroups: true, cardLook: "theme" },
     compose: { ribbon: true, styleSet: "default" },
     search: { enabled: true, scope: "folder" },
+    todayPane: { enabled: true, highlight: "red", customColor: "#d70022" },
   });
 });
 
@@ -195,4 +196,26 @@ test("search scope is folder or all", () => {
 test("toExperimentConfig passes the search settings", () => {
   const s = normalizeSettings({ search: { enabled: false, scope: "all" } });
   assert.deepEqual(toExperimentConfig(s).search, { enabled: false, scope: "all" });
+});
+
+test("the Today Pane look is on by default, red, and can be turned off", () => {
+  assert.deepEqual(DEFAULT_SETTINGS.todayPane, { enabled: true, highlight: "red", customColor: "#d70022" });
+  assert.deepEqual(normalizeSettings({}).todayPane, DEFAULT_SETTINGS.todayPane);
+  assert.equal(normalizeSettings({ todayPane: { enabled: false } }).todayPane.enabled, false);
+  assert.equal(normalizeSettings({ todayPane: "off" }).todayPane.enabled, true);
+  assert.equal(toExperimentConfig(normalizeSettings({ todayPane: { enabled: 0 } })).todayPane.enabled, false);
+});
+
+test("the Today Pane highlight is red, accent or custom with a hex color", () => {
+  for (const highlight of TODAY_HIGHLIGHTS) {
+    assert.equal(normalizeSettings({ todayPane: { highlight } }).todayPane.highlight, highlight);
+  }
+  assert.deepEqual(TODAY_HIGHLIGHTS, ["red", "accent", "custom"]);
+  for (const bad of ["blue", "", 3, null, "__proto__"]) {
+    assert.equal(normalizeSettings({ todayPane: { highlight: bad } }).todayPane.highlight, "red", String(bad));
+  }
+  assert.equal(normalizeSettings({ todayPane: { customColor: "#00AA33" } }).todayPane.customColor, "#00aa33");
+  assert.equal(normalizeSettings({ todayPane: { customColor: "red;}" } }).todayPane.customColor, "#d70022");
+  assert.deepEqual(toExperimentConfig(normalizeSettings({ todayPane: { highlight: "custom", customColor: "#123456" } })).todayPane,
+    { enabled: true, highlight: "custom", customColor: "#123456" });
 });

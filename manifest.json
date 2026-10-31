@@ -74,6 +74,20 @@
         ],
         "script": "experiments/search/implementation.js"
       }
+    },
+    "qolTodayPane": {
+      "schema": "experiments/todaypane/schema.json",
+      "parent": {
+        "scopes": [
+          "addon_parent"
+        ],
+        "paths": [
+          [
+            "qolTodayPane"
+          ]
+        ],
+        "script": "experiments/todaypane/implementation.js"
+      }
     }
   }
 }
