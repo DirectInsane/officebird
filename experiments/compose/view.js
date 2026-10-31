@@ -9,7 +9,7 @@ var qolRibbonView = (() => {
   // element of the chrome document. On macOS the ribbon hides the toolbar that moves the window; the
   // drag region is drag minus no-drag areas, so only what must stay clickable is no-drag.
   const CHROME_CSS = `
-#qol-ribbon img { -moz-context-properties: fill, fill-opacity; }
+#qol-ribbon img { -moz-context-properties: fill, fill-opacity, stroke; }
 #qol-ribbon .qol-tabrow { -moz-window-dragging: drag; }
 #qol-ribbon .qol-tabrow :is(button, input) { -moz-window-dragging: no-drag; }
 #qol-ribbon .qol-panels { -moz-window-dragging: no-drag; }

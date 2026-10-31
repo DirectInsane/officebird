@@ -41,3 +41,9 @@ test("icons still get their context colors", () => {
 test("the title line drags too: the hidden toolbar used to reach up behind it", () => {
   assert.match(rule(chromeCss, "html[data-qol-ribbon] #titlebar") ?? "", /-moz-window-dragging:\s*drag/);
 });
+
+test("two-tone icons get an outline in the text color and a light fill, so they show in dark mode", () => {
+  assert.match(rule(chromeCss, "#qol-ribbon img") ?? "", /-moz-context-properties:[^;]*\bstroke\b/);
+  assert.match(rule(sheet, "#qol-ribbon .qol-icon") ?? "", /stroke:\s*currentColor/);
+  assert.match(rule(sheet, '#qol-ribbon img[src*="/new/compact/"]') ?? "", /fill:\s*color-mix\(in srgb, currentColor 20%, transparent\)/);
+});

@@ -67,12 +67,20 @@ html[data-qol-painter] #messageEditor {
   height: 16px;
   fill: currentColor;
   fill-opacity: var(--toolbarbutton-icon-fill-opacity, 1);
+  stroke: currentColor;
 }
 
 /* Menupopups otherwise pass a faint fill down to these icons. */
 #qol-ribbon .qol-menu .menu-icon {
   fill: currentColor;
   fill-opacity: var(--toolbarbutton-icon-fill-opacity, 1);
+  stroke: currentColor;
+}
+
+/* Thunderbird's two-tone icons draw their outline with the stroke color; a full fill
+ * would cover it, which leaves a blank shape in dark mode. */
+#qol-ribbon img[src*="/new/compact/"] {
+  fill: color-mix(in srgb, currentColor 20%, transparent);
 }
 
 #qol-ribbon .qol-tabrow {
