@@ -17,8 +17,10 @@ const CARD_BATCH_MS = 50;
 const PREVIEW_BATCH_MS = 100;
 const MAX_PARSE_BYTES = 2 * 1024 * 1024;
 const PREVIEW_READ_BYTES = 256 * 1024;
-const PREVIEW_RETRY_MS = 30000;
-const PREVIEW_MAX_TRIES = 3;
+// Wait before the second and third try. Thunderbird skips the server while it downloads
+// a folder for offline use, so new mail often gets its preview only on a retry.
+const PREVIEW_RETRY_MS = [5000, 30000];
+const PREVIEW_MAX_TRIES = PREVIEW_RETRY_MS.length + 1;
 const MAX_PARALLEL_PARSES = 2;
 const PREVIEW_MAX_CHARS = 600;
 // Provider detection reads each message from disk on the main thread.
@@ -201,6 +203,7 @@ class QolState {
     this.previewTries = new CappedMap(); // id → { count, at }
     this.previewQueue = new Map();
     this.previewTimer = null;
+    this.previewRetryTimers = new Set();
     this.previewText = new CappedMap(); // id → text from the full parser
     this.parseQueue = [];
     this.parsing = 0;
@@ -269,6 +272,10 @@ class QolState {
     this.watchedBrowsers.clear();
     clearTimeout(this.pendingTimer);
     clearTimeout(this.previewTimer);
+    for (const timer of this.previewRetryTimers) {
+      clearTimeout(timer);
+    }
+    this.previewRetryTimers.clear();
     if (this.started) {
       ExtensionSupport.unregisterWindowListener(this.extension.id);
       ExtensionSupport.unregisterWindowListener(`${this.extension.id}-reader`);
@@ -1555,7 +1562,7 @@ class QolState {
   queuePreview(hdr, id) {
     // A server fetch can fail (no connection yet, server busy); try again later.
     const tries = this.previewTries.get(id) || { count: 0, at: 0 };
-    if (this.previewText.has(id) || tries.count >= PREVIEW_MAX_TRIES || Date.now() - tries.at < PREVIEW_RETRY_MS) {
+    if (this.previewText.has(id) || tries.count >= PREVIEW_MAX_TRIES || Date.now() - tries.at < (PREVIEW_RETRY_MS[tries.count - 1] ?? 0)) {
       return;
     }
     this.previewTries.set(id, { count: tries.count + 1, at: Date.now() });
@@ -1581,6 +1588,7 @@ class QolState {
       const finish = () => {
         this.redecorate(ids);
         this.parseMissingPreviews(folder, keys, ids);
+        this.retryPreviews(folder, keys, ids);
       };
       let isAsync = false;
       try {
@@ -1592,7 +1600,10 @@ class QolState {
         // One unreadable message fails the whole batch; retry one by one.
         for (const key of keys) {
           try {
-            folder.fetchMsgPreviewText([key], null);
+            folder.fetchMsgPreviewText([key], {
+              OnStartRunningUrl() {},
+              OnStopRunningUrl: () => this.redecorate(ids),
+            });
           } catch (inner) {
             // Left for the full parser below.
           }
@@ -1605,6 +1616,35 @@ class QolState {
         finish();
       }
     }
+  }
+
+  // Cards are filled again only when the list changes; without this a card whose preview
+  // came back empty stays empty until then.
+  retryPreviews(folder, keys, ids) {
+    const missing = new Set();
+    let tries = 0;
+    for (const key of keys) {
+      let hdr;
+      try {
+        hdr = folder.GetMessageHeader(key);
+      } catch (e) {
+        continue;
+      }
+      const id = cardId(hdr);
+      const count = this.previewTries.get(id)?.count ?? PREVIEW_MAX_TRIES;
+      if (ids.has(id) && count < PREVIEW_MAX_TRIES && !hdr.getStringProperty("preview") && !this.previewText.has(id)) {
+        missing.add(id);
+        tries = Math.max(tries, count);
+      }
+    }
+    if (!missing.size) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.previewRetryTimers.delete(timer);
+      this.redecorate(missing);
+    }, PREVIEW_RETRY_MS[tries - 1]);
+    this.previewRetryTimers.add(timer);
   }
 
   // Thunderbird's quick extraction reads only the start of the body, so newsletters with
