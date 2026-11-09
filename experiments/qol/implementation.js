@@ -527,6 +527,7 @@ class QolState {
 
     this.installGroupRows(win, restores);
     this.installGroupExpansion(win, restores);
+    this.installBatchRefresh(win, restores);
 
     const messageBrowser = win.messageBrowser;
     if (messageBrowser) {
@@ -851,6 +852,46 @@ class QolState {
       threadPane.restoreThreadState = original;
       tree.removeEventListener("expanded", onToggle);
       tree.removeEventListener("collapsed", onToggle);
+    });
+  }
+
+  // Deleting several messages removes their rows inside an update batch. The list drops
+  // row changes during a batch and doesn't catch up when it ends, so it keeps the deleted
+  // rows (refilled as empty cards) until the folder is opened again.
+  installBatchRefresh(win, restores) {
+    const jsTree = win.threadPane?._jsTree;
+    const tree = win.threadTree;
+    if (
+      ["rowCountChanged", "endUpdateBatch"].some(n => typeof jsTree?.[n] !== "function" || !Object.hasOwn(jsTree, n)) ||
+      typeof tree?.reset !== "function" ||
+      typeof tree.table?.spacerTop?.setHeight !== "function"
+    ) {
+      log("message list batch internals changed; list refresh after deleting several messages disabled");
+      return;
+    }
+    const original = { rowCountChanged: jsTree.rowCountChanged, endUpdateBatch: jsTree.endUpdateBatch };
+    let removed = false;
+    jsTree.rowCountChanged = function (index, count) {
+      if (this._inBatch && count < 0) {
+        removed = true;
+      }
+      return original.rowCountChanged.call(this, index, count);
+    };
+    jsTree.endUpdateBatch = function (...args) {
+      const result = original.endUpdateBatch.apply(this, args);
+      if (removed && !this._inBatch) {
+        removed = false;
+        if (!win.gDBView?.rowCount) {
+          // The list fills nothing for an empty view, which leaves the old scroll height.
+          tree.table.spacerTop.setHeight(0);
+        }
+        tree.reset();
+      }
+      return result;
+    };
+    restores.push(() => {
+      jsTree.rowCountChanged = original.rowCountChanged;
+      jsTree.endUpdateBatch = original.endUpdateBatch;
     });
   }
 
